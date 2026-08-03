@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opennovel"
+version = "0.1.0"
+description = "An agent that writes novels from user-provided plots, keeping language style consistent and plot coherent across the novel."
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest"]
+
+[project.scripts]
+opennovel = "opennovel.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opennovel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
