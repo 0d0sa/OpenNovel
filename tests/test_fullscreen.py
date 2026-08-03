@@ -4,6 +4,7 @@ from io import StringIO
 
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
+from prompt_toolkit.output import DummyOutput
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -12,7 +13,7 @@ from rich.text import Text
 from opennovel.llm import FakeProvider
 from opennovel.models import Chapter, Novel, Scene, SceneStatus
 from opennovel.ui.chat import ChatView, render_ansi
-from opennovel.ui.display import help_table, status_view
+from opennovel.ui.display import help_table, status_view, welcome_panel
 from opennovel.ui.repl import handle_command
 
 
@@ -68,6 +69,10 @@ def test_chat_view_static_cards():
 
 
 def test_display_renderables():
+    rendered = render_ansi(welcome_panel("test-model"), width=80)
+    assert "OpenNovel" in rendered
+    assert "/new" in rendered
+    assert "test-model" in rendered
     rendered = render_ansi(help_table(), width=80)
     assert "命令" in rendered
     novel = Novel(title="雾中城", chapters=[Chapter(title="夜雨")])
@@ -81,7 +86,11 @@ def test_fullscreen_accept_flow_with_pipe(tmp_path):
     from opennovel.ui.app import FullScreenChatApp
 
     provider = FakeProvider(replies=[FakeProvider.json_reply({"kind": "help", "chapter_no": 0, "suggestion": ""})])
-    app = FullScreenChatApp(provider, Settings(output_dir=tmp_path, max_chapters=1))
+    app = FullScreenChatApp(
+        provider,
+        Settings(output_dir=tmp_path, max_chapters=1),
+        output=DummyOutput(),
+    )
     # bypass the real Application.run loop: exercise accept handler directly
     buffer = Buffer()
     buffer.text = "/help"
@@ -95,7 +104,7 @@ def test_fullscreen_busy_ignores_input(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path))
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
     app._busy = True
     buffer = Buffer()
     buffer.text = "任何输入"
@@ -107,9 +116,10 @@ def test_fullscreen_ask_flow(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path))
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
     holder = {"event": __import__("threading").Event(), "value": ""}
     app._pending_ask = holder
+    app._busy = True
 
     buffer = Buffer()
     buffer.text = "雾中城"
@@ -118,15 +128,34 @@ def test_fullscreen_ask_flow(tmp_path):
     assert buffer.text == ""
 
 
+def test_fullscreen_busy_allows_only_pending_answer(tmp_path):
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app._busy = True
+    assert app.buffer.read_only()
+
+    app._pending_ask = {"event": __import__("threading").Event(), "value": ""}
+    assert not app.buffer.read_only()
+    assert app._state_label()[1] == "等待回答"
+
+
 def test_fullscreen_header_shows_model(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    app = FullScreenChatApp(FakeProvider(model="deepseek-v4-flash"), Settings(output_dir=tmp_path))
+    app = FullScreenChatApp(
+        FakeProvider(model="deepseek-v4-flash"),
+        Settings(output_dir=tmp_path),
+        output=DummyOutput(),
+    )
     assert "deepseek-v4-flash" in app._header_text("deepseek-v4-flash")
     assert "OpenNovel" in app._header_text("m")
-    # layout: header / history / top line / input / bottom line
-    names = [type(c).__name__ for c in app.layout.container.children]
+    header = app._header_fragments()
+    assert "deepseek-v4-flash" in "".join(fragment[1] for fragment in header)
+    # body layout: header / history / composer rule / input / footer
+    names = [type(c).__name__ for c in app.body.children]
     assert names == ["Window", "Window", "Window", "Window", "Window"]
 
 
@@ -134,7 +163,7 @@ def test_fullscreen_exit_during_ask(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path))
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
     holder = {"event": __import__("threading").Event(), "value": ""}
     app._pending_ask = holder
 
@@ -149,7 +178,7 @@ def test_fullscreen_system_text_renders_markup(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path))
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
     app._add_system_text("[yellow]还没有开始新书[/yellow]")
     assert "[yellow]" not in app.view.ansi_text
     assert "还没有开始新书" in app.view.ansi_text

@@ -9,7 +9,8 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style
+
+from opennovel.ui.theme import UI_STYLE
 
 COMMANDS = [
     ("new", "开始一本新书（书名 / 剧情 / 风格）"),
@@ -22,7 +23,7 @@ COMMANDS = [
     ("exit", "退出"),
 ]
 
-PROMPT = "opennovel> "
+PROMPT = "> "
 
 
 class CommandCompleter(Completer):
@@ -72,12 +73,7 @@ class ChatInput:
                 key_bindings=_bindings(),
                 multiline=True,
                 complete_while_typing=True,
-                style=Style.from_dict(
-                    {
-                        "prompt": "bold fg:ansigreen",
-                        "completion.menu.completion": "bg:#2d2d2d fg:#8be9fd",
-                    }
-                ),
+                style=UI_STYLE,
             )
         text = self.session.prompt()
         return text.strip()

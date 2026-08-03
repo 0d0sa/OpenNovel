@@ -9,16 +9,17 @@ from __future__ import annotations
 
 from io import StringIO
 
+from rich import box
 from rich.console import Console, Group
-from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
 from opennovel.models import Novel
+from opennovel.ui.theme import ACCENT, BRAND, MUTED, SUCCESS, TEXT, WARNING
 
-USER_PREFIX = "[bold cyan]你[/bold cyan]"
-ASSISTANT_PREFIX = "[bold green]OpenNovel[/bold green]"
-SYSTEM_PREFIX = "[bold magenta]系统[/bold magenta]"
+USER_PREFIX = f"[bold {ACCENT}]>[/bold {ACCENT}]"
+ASSISTANT_PREFIX = f"[bold {BRAND}]*[/bold {BRAND}] [bold {TEXT}]OpenNovel[/bold {TEXT}]"
+SYSTEM_PREFIX = f"[bold {MUTED}]-[/bold {MUTED}]"
 
 
 def render_ansi(renderable, width: int = 100) -> str:
@@ -51,11 +52,11 @@ class ChatView:
 
     def add_user(self, text: str) -> None:
         self.messages.append(("user", text))
-        self._append(Text.from_markup(f"{USER_PREFIX}：{escape(text)}"))
+        self._append(_user_message(text))
 
     def add_assistant(self, text: str) -> None:
         self.messages.append(("assistant", text))
-        self._append(Text.from_markup(f"{ASSISTANT_PREFIX}：{escape(text)}"))
+        self._append(_assistant_message(text))
 
     def add_system(self, renderable) -> None:
         self.messages.append(("system", str(renderable)))
@@ -63,7 +64,7 @@ class ChatView:
 
     def begin_stream(self) -> None:
         self._parts = []
-        self._append(Text.from_markup(f"{ASSISTANT_PREFIX}："), end="")
+        self._append(_assistant_heading())
 
     def feed(self, token: str) -> None:
         self._parts.append(token)
@@ -79,31 +80,16 @@ class ChatView:
         self._texts.append(render_ansi(renderable, self.width).rstrip() + end)
 
     @staticmethod
-    def stage_panel(stage: str) -> Panel:
-        return Panel(Text(stage, style="bold yellow"), border_style="blue", title="进度", expand=False)
+    def stage_panel(stage: str) -> Text:
+        return _stage_status(stage)
 
     @staticmethod
     def chapter_card(novel: Novel, idx: int) -> Panel:
-        chapter = novel.chapters[idx - 1]
-        chars = sum(len(s.content) for s in chapter.scenes)
-        style_score = chapter.style_report.score if chapter.style_report else "-"
-        plot_score = chapter.plot_report.score if chapter.plot_report else "-"
-        body = (
-            f"第{idx}章 {chapter.title}\n"
-            f"字数：{chars}  风格检查：{style_score}/5  剧情检查：{plot_score}/5"
-        )
-        return Panel(body, border_style="green", title="章节完成", expand=False)
+        return _chapter_card(novel, idx)
 
     @staticmethod
     def summary_card(novel: Novel) -> Panel:
-        chars = sum(len(s.content) for ch in novel.chapters for s in ch.scenes)
-        setups = [s for s in novel.plot_state.setups if s.resolved_in is None]
-        body = (
-            f"《{novel.title}》{len(novel.chapters)} 章，约 {chars} 字\n"
-            f"{len(novel.plot_state.characters)} 角色 / {len(novel.plot_state.events)} 事件 / "
-            f"{len(setups)} 个未回收伏笔"
-        )
-        return Panel(body, border_style="green", title="成书", expand=False)
+        return _summary_card(novel)
 
 
 class ChatStream:
@@ -116,11 +102,11 @@ class ChatStream:
 
     def add_user(self, text: str) -> None:
         self.messages.append(("user", text))
-        self.console.print(f"{USER_PREFIX}：{text}")
+        self.console.print(_user_message(text))
 
     def add_assistant(self, text: str) -> None:
         self.messages.append(("assistant", text))
-        self.console.print(f"{ASSISTANT_PREFIX}：{text}")
+        self.console.print(_assistant_message(text))
 
     def add_system(self, renderable) -> None:
         self.messages.append(("system", str(renderable)))
@@ -128,7 +114,7 @@ class ChatStream:
 
     def stream_assistant(self, chunks) -> str:
         """Stream prose inside one assistant message; returns the full text."""
-        self.console.print(f"{ASSISTANT_PREFIX}：", end="")
+        self.console.print(_assistant_heading())
         parts: list[str] = []
         for chunk in chunks:
             parts.append(chunk)
@@ -140,7 +126,7 @@ class ChatStream:
 
     def begin_stream(self) -> None:
         """Start a push-based assistant stream (used with on_token callbacks)."""
-        self.console.print(f"{ASSISTANT_PREFIX}：", end="")
+        self.console.print(_assistant_heading())
         self._parts = []
 
     def feed(self, token: str) -> None:
@@ -154,32 +140,94 @@ class ChatStream:
         self._parts = []
 
     @staticmethod
-    def stage_panel(stage: str) -> Panel:
-        return Panel(Text(stage, style="bold yellow"), border_style="blue", title="进度", expand=False)
+    def stage_panel(stage: str) -> Text:
+        return _stage_status(stage)
 
     @staticmethod
     def chapter_card(novel: Novel, idx: int) -> Panel:
-        chapter = novel.chapters[idx - 1]
-        chars = sum(len(s.content) for s in chapter.scenes)
-        style_score = chapter.style_report.score if chapter.style_report else "-"
-        plot_score = chapter.plot_report.score if chapter.plot_report else "-"
-        body = (
-            f"第{idx}章 {chapter.title}\n"
-            f"字数：{chars}  风格检查：{style_score}/5  剧情检查：{plot_score}/5"
-        )
-        return Panel(body, border_style="green", title="章节完成", expand=False)
+        return _chapter_card(novel, idx)
 
     @staticmethod
     def summary_card(novel: Novel) -> Panel:
-        chars = sum(len(s.content) for ch in novel.chapters for s in ch.scenes)
-        setups = [s for s in novel.plot_state.setups if s.resolved_in is None]
-        body = (
-            f"《{novel.title}》{len(novel.chapters)} 章，约 {chars} 字\n"
-            f"{len(novel.plot_state.characters)} 角色 / {len(novel.plot_state.events)} 事件 / "
-            f"{len(setups)} 个未回收伏笔"
-        )
-        return Panel(body, border_style="green", title="成书", expand=False)
+        return _summary_card(novel)
 
     @staticmethod
     def group(*renderables) -> Group:
         return Group(*renderables)
+
+
+def _user_message(text: str) -> Text:
+    message = Text()
+    message.append("> ", style=f"bold {ACCENT}")
+    message.append(text, style=f"bold {TEXT}")
+    return message
+
+
+def _assistant_heading() -> Text:
+    heading = Text()
+    heading.append("* ", style=f"bold {BRAND}")
+    heading.append("OpenNovel", style=f"bold {TEXT}")
+    return heading
+
+
+def _assistant_message(text: str) -> Text:
+    message = _assistant_heading()
+    message.append("\n")
+    message.append(text, style=TEXT)
+    return message
+
+
+def _stage_status(stage: str) -> Text:
+    status = Text()
+    status.append("- ", style=f"bold {WARNING}")
+    status.append(stage, style=MUTED)
+    return status
+
+
+def _chapter_card(novel: Novel, idx: int) -> Panel:
+    chapter = novel.chapters[idx - 1]
+    chars = sum(len(s.content) for s in chapter.scenes)
+    style_score = chapter.style_report.score if chapter.style_report else "-"
+    plot_score = chapter.plot_report.score if chapter.plot_report else "-"
+    body = Text()
+    body.append(f"第{idx}章  {chapter.title}\n", style=f"bold {TEXT}")
+    body.append(
+        f"{chars} 字   风格 {style_score}/5   剧情 {plot_score}/5",
+        style=MUTED,
+    )
+    return Panel(
+        body,
+        box=box.ROUNDED,
+        border_style=SUBTLE_COLOR,
+        title=f"[{SUCCESS}]done 章节完成[/]",
+        title_align="left",
+        padding=(0, 1),
+        expand=False,
+    )
+
+
+def _summary_card(novel: Novel) -> Panel:
+    chars = sum(len(s.content) for ch in novel.chapters for s in ch.scenes)
+    setups = [s for s in novel.plot_state.setups if s.resolved_in is None]
+    body = Text()
+    body.append(f"《{novel.title}》\n", style=f"bold {TEXT}")
+    body.append(f"{len(novel.chapters)} 章  ·  约 {chars} 字\n", style=MUTED)
+    body.append(
+        f"{len(novel.plot_state.characters)} 角色  ·  "
+        f"{len(novel.plot_state.events)} 事件  ·  {len(setups)} 未回收伏笔",
+        style=MUTED,
+    )
+    return Panel(
+        body,
+        box=box.ROUNDED,
+        border_style=SUCCESS,
+        title=f"[{SUCCESS}]done 成书[/]",
+        title_align="left",
+        padding=(0, 1),
+        expand=False,
+    )
+
+
+# Rich treats a hex value as a style string.  Keeping this alias local makes
+# the card construction above easier to scan.
+SUBTLE_COLOR = "#303842"

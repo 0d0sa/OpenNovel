@@ -60,7 +60,8 @@ def test_chat_stream_echoes_and_streams():
     assert roles == ["user", "assistant", "assistant", "assistant"]
     assert chat.messages[-1][1] == "甲乙"
     out = console.file.getvalue()
-    assert "你：你好" in out
+    assert "> 你好" in out
+    assert "* OpenNovel" in out
     assert "一二三" in out
 
 

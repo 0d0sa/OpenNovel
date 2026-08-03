@@ -103,7 +103,7 @@ def test_json_roundtrip_preserves_everything(tmp_path):
 def test_default_novel_path():
     from opennovel.models import default_novel_path
 
-    assert str(default_novel_path("雾中城")) == "novels/雾中城/novel.json"
+    assert default_novel_path("雾中城").as_posix() == "novels/雾中城/novel.json"
 
 
 def test_save_novel_json_matches_model():

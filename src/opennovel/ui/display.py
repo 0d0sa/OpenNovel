@@ -7,6 +7,7 @@ app share the same presentation.
 
 from __future__ import annotations
 
+from rich import box
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
@@ -14,18 +15,48 @@ from rich.text import Text
 
 from opennovel.memory import StyleProfile
 from opennovel.models import Novel
+from opennovel.ui.theme import BRAND, ERROR, MUTED, SUBTLE, TEXT
 
-BANNER_TEXT = "OpenNovel — 小说写作 Agent（聊天输入 / 命令用 / 开头，输入 /help 查看帮助）"
+BANNER_TEXT = "OpenNovel — 小说写作智能体"
 
 
 def banner_text() -> Text:
-    return Text(BANNER_TEXT, style="cyan bold")
+    return Text(BANNER_TEXT, style=f"bold {BRAND}")
+
+
+def welcome_panel(model: str = "") -> Panel:
+    """Compact first-run card; detailed commands stay behind `/help`."""
+    body = Text()
+    body.append("OpenNovel\n", style=f"bold {BRAND}")
+    body.append("把剧情写成长篇故事，并持续守住文风与剧情连贯性。\n\n", style=TEXT)
+    body.append(">  输入 ", style=MUTED)
+    body.append("/new", style=f"bold {TEXT}")
+    body.append(" 创建作品，或直接描述你想写的故事\n", style=MUTED)
+    body.append("   输入 ", style=MUTED)
+    body.append("/help", style=f"bold {TEXT}")
+    body.append(" 查看全部命令", style=MUTED)
+    if model:
+        body.append(f"\n\nmodel  {model}", style=f"dim {MUTED}")
+    return Panel(
+        body,
+        box=box.ROUNDED,
+        border_style=SUBTLE,
+        padding=(1, 2),
+        expand=False,
+    )
 
 
 def help_table() -> Table:
-    table = Table(title="命令", show_header=False, box=None, padding=(0, 2))
-    table.add_column("命令", style="bold")
-    table.add_column("说明")
+    table = Table(
+        title="命令 / Commands",
+        title_style=f"bold {TEXT}",
+        show_header=False,
+        box=box.SIMPLE,
+        border_style=SUBTLE,
+        padding=(0, 2),
+    )
+    table.add_column("命令", style=f"bold {BRAND}", no_wrap=True)
+    table.add_column("说明", style=MUTED)
     for cmd, desc in (
         ("/new", "开始一本新书（书名 / 剧情 / 风格）"),
         ("/write", "写作当前这本书"),
@@ -41,11 +72,18 @@ def help_table() -> Table:
 
 
 def status_view(novel: Novel) -> Group:
-    table = Table(title=f"《{novel.title}》", show_header=True)
-    table.add_column("章节", style="bold")
-    table.add_column("字数", justify="right")
-    table.add_column("风格检查", justify="right")
-    table.add_column("剧情检查", justify="right")
+    table = Table(
+        title=f"《{novel.title}》",
+        title_style=f"bold {TEXT}",
+        header_style=MUTED,
+        border_style=SUBTLE,
+        box=box.SIMPLE_HEAD,
+        show_header=True,
+    )
+    table.add_column("章节", style=TEXT)
+    table.add_column("字数", justify="right", style=MUTED)
+    table.add_column("风格", justify="right", style=MUTED)
+    table.add_column("剧情", justify="right", style=MUTED)
     for i, ch in enumerate(novel.chapters, 1):
         chars = sum(len(s.content) for s in ch.scenes)
         style_score = ch.style_report.score if ch.style_report else "-"
@@ -55,7 +93,7 @@ def status_view(novel: Novel) -> Group:
     summary = Text(
         f"剧情状态：{len(state.characters)} 角色 / {len(state.events)} 事件 / "
         f"{len([s for s in state.setups if s.resolved_in is None])} 个未回收伏笔",
-        style="dim",
+        style=MUTED,
     )
     return Group(table, summary)
 
@@ -70,7 +108,14 @@ def style_panel(profile: StyleProfile) -> Panel:
     body = "\n".join(lines)
     if profile.sample_passage:
         body += "\n\n[bold]风格样本：[/bold]\n" + profile.sample_passage
-    return Panel(body, title="风格锚点", border_style="cyan")
+    return Panel(
+        body,
+        title=f"[{BRAND}]风格锚点[/]",
+        title_align="left",
+        border_style=SUBTLE,
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
 
 
 def checks_group(novel: Novel) -> Group:
@@ -99,6 +144,13 @@ def checks_group(novel: Novel) -> Group:
                 items.append(Text(f"    建议：{r.suggestion}", style="dim"))
         items.append(Text(""))
     return Group(*items)
+
+
+def error_text(message: str) -> Text:
+    text = Text()
+    text.append("x ", style=f"bold {ERROR}")
+    text.append(message, style=ERROR)
+    return text
 
 
 # --- console wrappers (console REPL / tests) ---

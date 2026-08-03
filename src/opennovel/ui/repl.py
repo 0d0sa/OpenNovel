@@ -8,6 +8,7 @@ testable without a terminal).
 
 from __future__ import annotations
 
+import os
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,7 +94,7 @@ def run_repl(provider: Provider, settings: Settings) -> int:
 def handle_command(session: Session, line: str) -> bool:
     """Process one input line. Returns False to exit the session."""
     if line.startswith("/"):
-        parts = shlex.split(line)
+        parts = _split_command(line)
         cmd = parts[0].lower()
         args = parts[1:]
         if cmd == "/exit":
@@ -118,6 +119,19 @@ def handle_command(session: Session, line: str) -> bool:
     else:
         _route_free_text(session, line)
     return True
+
+
+def _split_command(line: str) -> list[str]:
+    """Split slash commands without treating Windows path slashes as escapes."""
+    parts = shlex.split(line, posix=os.name != "nt")
+    if os.name == "nt":
+        parts = [
+            part[1:-1]
+            if len(part) >= 2 and part[0] == part[-1] and part[0] in {'"', "'"}
+            else part
+            for part in parts
+        ]
+    return parts
 
 
 def _route_free_text(session: Session, line: str) -> None:
