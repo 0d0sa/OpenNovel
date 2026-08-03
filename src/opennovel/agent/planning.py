@@ -94,8 +94,12 @@ def write_scene(
     plot_brief: str,
     prev_tail: str,
     target_chars: int,
+    stream_callback=None,
 ) -> str:
-    """Write one scene's prose (one LLM call). Returns the text."""
+    """Write one scene's prose (one LLM call). Returns the text.
+
+    With `stream_callback`, output is streamed token by token and forwarded.
+    """
     request = CompletionRequest(
         messages=[
             ChatMessage(role="system", content=WRITE_SYSTEM),
@@ -110,7 +114,7 @@ def write_scene(
             ),
         ]
     )
-    return provider.complete(request).text.strip()
+    return _collect_stream(provider, request, stream_callback)
 
 
 def rewrite_chapter(
@@ -119,6 +123,7 @@ def rewrite_chapter(
     style_deviation,
     plot_consistency,
     style_anchor: str,
+    stream_callback=None,
 ) -> str:
     """One rewrite pass driven by the check reports. Returns new text."""
     report: list[str] = []
@@ -145,4 +150,14 @@ def rewrite_chapter(
             ),
         ]
     )
-    return provider.complete(request).text.strip()
+    return _collect_stream(provider, request, stream_callback)
+
+
+def _collect_stream(provider: Provider, request: CompletionRequest, stream_callback) -> str:
+    if stream_callback is None:
+        return provider.complete(request).text.strip()
+    parts: list[str] = []
+    for chunk in provider.stream_complete(request):
+        parts.append(chunk)
+        stream_callback(chunk)
+    return "".join(parts).strip()

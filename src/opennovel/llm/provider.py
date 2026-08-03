@@ -10,10 +10,9 @@ import dataclasses
 import json
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
 from openai import RateLimitError
-from pydantic import BaseModel
-
 from pydantic import BaseModel
 
 from opennovel.llm.types import ChatMessage, CompletionRequest, CompletionResponse
@@ -44,6 +43,14 @@ class Provider(ABC):
     @abstractmethod
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         """One chat completion call. Honors `request.schema` (JSON mode)."""
+
+    def stream_complete(self, request: CompletionRequest) -> Iterator[str]:
+        """Stream a completion token by token (yields text deltas).
+
+        Default implementation: fall back to a single complete() call and
+        yield the whole text at once (used by FakeProvider and simple backends).
+        """
+        yield self.complete(request).text
 
     def complete_structured(
         self, request: CompletionRequest, schema: type[BaseModel]
@@ -130,6 +137,28 @@ class OpenAICompatibleProvider(Provider):
         text = raw.choices[0].message.content or ""
         usage = raw.usage.model_dump() if raw.usage else None
         return CompletionResponse(text=text, model=raw.model, usage=usage)
+
+    def stream_complete(self, request: CompletionRequest) -> Iterator[str]:
+        if self.call_interval > 0:
+            time.sleep(self.call_interval)
+        kwargs: dict = {}
+        if request.schema is not None:
+            kwargs["response_format"] = {"type": "json_object"}
+        try:
+            stream = self._client.chat.completions.create(
+                model=request.model or self.model,
+                messages=[m.__dict__ for m in request.messages],
+                temperature=request.temperature if request.temperature is not None else self.temperature,
+                max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
+                stream=True,
+                **kwargs,
+            )
+        except Exception as exc:
+            raise LLMError(f"LLM call failed: {exc}") from exc
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
 
 class FakeProvider(Provider):

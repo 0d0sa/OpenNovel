@@ -1,4 +1,5 @@
-"""CLI entry point: `opennovel write` runs the novel-writing pipeline."""
+"""CLI entry point: `opennovel` enters the interactive REPL, `opennovel write`
+runs the batch pipeline."""
 
 import argparse
 import sys
@@ -9,7 +10,10 @@ from dotenv import load_dotenv
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="opennovel", description="Novel-writing agent CLI")
+    parser = argparse.ArgumentParser(
+        prog="opennovel",
+        description="Novel-writing agent CLI（不带子命令进入交互模式）",
+    )
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     sub = parser.add_subparsers(dest="command")
 
@@ -27,11 +31,23 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
-        parser.print_help()
-        return 0
+        return _cmd_interactive()
     if args.command == "write":
         return _cmd_write(args)
     return 1
+
+
+def _cmd_interactive() -> int:
+    from opennovel.config import load_settings
+    from opennovel.llm import ProviderConfigError, provider_from_env
+    from opennovel.ui import run_repl
+
+    try:
+        provider = provider_from_env()
+    except ProviderConfigError as exc:
+        print(f"配置错误：{exc}", file=sys.stderr)
+        return 1
+    return run_repl(provider, load_settings())
 
 
 def _cmd_write(args: argparse.Namespace) -> int:

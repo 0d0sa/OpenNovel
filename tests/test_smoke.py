@@ -15,13 +15,15 @@ def test_cli_parser_has_write_command():
     )
 
 
-def test_cli_main_loads_dotenv(monkeypatch, capsys):
+def test_cli_main_loads_dotenv(monkeypatch):
     import opennovel.cli as cli
 
     calls = []
+    entered = []
     monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: calls.append(1))
+    monkeypatch.setattr(cli, "_cmd_interactive", lambda: entered.append(1) or 0)
     monkeypatch.setattr("sys.argv", ["opennovel"])
     cli.main()
     assert calls == [1]
-    assert "Novel-writing agent CLI" in capsys.readouterr().out
+    assert entered == [1]
 

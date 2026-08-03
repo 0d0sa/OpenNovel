@@ -11,7 +11,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from opennovel.memory import PlotState, StyleProfile
+from opennovel.memory import PlotConsistency, PlotState, StyleDeviation, StyleProfile
 
 
 class SceneStatus(StrEnum):
@@ -33,6 +33,8 @@ class Chapter(BaseModel):
     title: str = Field(default="", description="章节标题")
     outline: str = Field(default="", description="章节大纲")
     scenes: list[Scene] = Field(default_factory=list)
+    style_report: StyleDeviation | None = Field(default=None, description="章节风格检查报告")
+    plot_report: PlotConsistency | None = Field(default=None, description="章节剧情检查报告")
 
 
 class Character(BaseModel):

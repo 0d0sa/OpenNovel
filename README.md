@@ -13,11 +13,33 @@ novel fragments and chapters.
 
 ## 当前状态 / Status
 
-MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK 兼容层）、
-`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排：剧情→章节）全部实现，
-已用真实 API 跑通 1 章成书（含章节规划、逐场景写作、检查与状态更新）。
+MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK 兼容层 + 流式输出）、
+`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排：剧情→章节）、
+`ui/`（rich REPL 交互界面）全部实现，已用真实 API 跑通成书。
 
 ## 使用 / Usage
+
+### 交互模式（推荐）
+
+```bash
+uv run opennovel
+```
+
+进入 REPL 会话（rich 美化界面），命令：
+
+| 命令 | 说明 |
+|---|---|
+| `/new` | 开始新书：书名 / 剧情（或 `--plot-file`）/ 风格 |
+| `/write` | 写作当前书（实时进度面板 + 正文流式输出） |
+| `/status` | 章节/字数/检查分数/剧情状态概览 |
+| `/style` | 查看当前风格锚点 |
+| `/checks` | 查看各章风格与剧情检查报告 |
+| `/rewrite N` | 手动重写第 N 章 |
+| `/help` `/exit` | 帮助 / 退出 |
+
+自由输入 = 给当前书追加剧情补充。
+
+### 批量模式
 
 ```bash
 uv run opennovel write --title 雾中城 --plot "少年雨夜进城寻找失踪的妹妹" --style "冷峻克制"
@@ -71,6 +93,9 @@ src/opennovel/
   agent/
     orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
     planning.py       章节/场景规划与写作/重写的 LLM 调用
+  ui/
+    repl.py           REPL 会话：命令分发（/new /write /status /style /checks /rewrite）
+    display.py        rich 渲染：面板/表格/检查报告
 tests/              冒烟测试 + 数据模型测试
 ```
 
@@ -93,4 +118,5 @@ uv run opennovel       # 运行 CLI（仅占位）
 - [x] style_profile 逻辑（前置提取 / 锚点注入 / 章节级检查）
 - [x] plot_state 逻辑（增量更新 / 简报注入 / 章节级检查）
 - [x] 编排流程：剧情 -> 章节大纲 -> 章节正文（真实 API 验证通过）
+- [x] 终端交互界面（rich REPL：/new /write /status /style /checks /rewrite + 流式输出）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文
