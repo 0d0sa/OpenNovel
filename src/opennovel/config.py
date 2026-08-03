@@ -22,6 +22,7 @@ ENV_CHAPTER_TARGET_CHARS = "OPENNOVEL_CHAPTER_TARGET_CHARS"
 ENV_MAX_CHAPTERS = "OPENNOVEL_MAX_CHAPTERS"
 ENV_OUTPUT_DIR = "OPENNOVEL_OUTPUT_DIR"
 ENV_STYLE_CHECK = "OPENNOVEL_STYLE_CHECK"
+ENV_PLOT_CHECK = "OPENNOVEL_PLOT_CHECK"
 
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 4096
@@ -41,6 +42,7 @@ class Settings:
     max_chapters: int = 20
     output_dir: Path = Path("novels")
     style_check: bool = True
+    plot_check: bool = True
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -61,6 +63,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_chapters=_int(env, ENV_MAX_CHAPTERS, 20),
         output_dir=Path(env.get(ENV_OUTPUT_DIR, "novels")),
         style_check=_bool(env, ENV_STYLE_CHECK, True),
+        plot_check=_bool(env, ENV_PLOT_CHECK, True),
     )
 
 
