@@ -37,9 +37,19 @@ class Session:
     style_hint: str = ""
     novel: object = None
     history: list[str] = field(default_factory=list)
+    exiting: bool = False
 
     def ask(self, prompt: str) -> str:
-        return self.console.input(f"[bold cyan]{prompt}[/bold cyan] ").strip()
+        """Read a line, dispatching `/` commands instead of treating them as answers."""
+        while True:
+            line = self.console.input(f"[bold cyan]{prompt}[/bold cyan] ").strip()
+            if line.startswith("/"):
+                handle_command(self, line)
+                if self.exiting:
+                    return ""
+                self.console.print("[dim]命令已执行，请继续回答：[/dim]" + prompt)
+                continue
+            return line
 
     def say(self, text: str) -> None:
         self.console.print(text)
@@ -61,7 +71,7 @@ def run_repl(provider: Provider, settings: Settings) -> int:
             continue
         session.history.append(line)
         try:
-            if not handle_command(session, line):
+            if not handle_command(session, line) or session.exiting:
                 return 0
         except Exception as exc:
             console.print(f"[red]错误：{exc}[/red]")
@@ -74,6 +84,7 @@ def handle_command(session: Session, line: str) -> bool:
         cmd = parts[0].lower()
         args = parts[1:]
         if cmd == "/exit":
+            session.exiting = True
             return False
         if cmd == "/help":
             print_help(session.console)
@@ -123,6 +134,8 @@ def _cmd_new(session: Session, args: list[str]) -> None:
             session.say(f"[red]未知参数：{args[i]}（支持 --title / --plot-file / --style）[/red]")
             return
     title = title or session.ask("书名：")
+    if session.exiting:
+        return
     if not title:
         session.say("[red]书名不能为空[/red]")
         return
@@ -135,10 +148,14 @@ def _cmd_new(session: Session, args: list[str]) -> None:
             return
     else:
         plot = session.ask("剧情（一句话即可）：")
+        if session.exiting:
+            return
     if not plot:
         session.say("[red]剧情不能为空[/red]")
         return
     style_hint = style_hint or session.ask("风格描述（可回车跳过）：")
+    if session.exiting:
+        return
     session.title = title
     session.plot = plot
     session.style_hint = style_hint

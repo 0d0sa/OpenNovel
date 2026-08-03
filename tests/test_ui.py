@@ -62,6 +62,34 @@ def test_free_text_requires_new_book_first():
     assert "先 /new" in session.console.file.getvalue()
 
 
+def test_exit_during_new_prompts_aborts(tmp_path):
+    session = make_session(FakeProvider(), tmp_path)
+    lines = iter(["雾中城", "/exit"])
+    session.console.input = lambda prompt="": next(lines)
+    handle_command(session, "/new")
+    assert session.exiting is True
+    assert session.plot == ""  # 未完成创建
+
+
+def test_exit_not_consumed_as_title(tmp_path):
+    """/exit typed at the 书名 prompt must exit, not become the title."""
+    session = make_session(FakeProvider(), tmp_path)
+    session.console.input = lambda prompt="": "/exit"
+    handle_command(session, "/new")
+    assert session.exiting is True
+    assert session.title == ""
+
+
+def test_other_command_during_new_reprompts(tmp_path):
+    session = make_session(FakeProvider(), tmp_path)
+    lines = iter(["/status", "雾中城", "剧情", ""])
+    session.console.input = lambda prompt="": next(lines)
+    handle_command(session, "/new")
+    assert session.title == "雾中城"
+    assert session.plot == "剧情"
+    assert "命令已执行" in session.console.file.getvalue()
+
+
 def test_new_sets_up_plot_and_append():
     session = make_session(FakeProvider(), "/tmp/x")
     answers = iter(["雾中城", "少年进城找妹妹", "冷峻"])
