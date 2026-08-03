@@ -28,12 +28,13 @@ class CompletionRequest:
 
     `schema` marks the call as structured-output: the provider should return
     JSON matching that Pydantic model (used via `complete_structured`).
+    `temperature`/`max_tokens` fall back to provider defaults when None.
     """
 
     messages: list[ChatMessage]
     model: str = ""
-    temperature: float = 0.7
-    max_tokens: int = 2048
+    temperature: float | None = None
+    max_tokens: int | None = None
     schema: type[BaseModel] | None = None
     extra: dict = field(default_factory=dict)
 

@@ -13,3 +13,15 @@ def test_cli_parser_has_write_command():
     assert "write" in [a.dest for a in parser._actions] or any(
         getattr(a, "choices", None) and "write" in a.choices for a in parser._actions
     )
+
+
+def test_cli_main_loads_dotenv(monkeypatch, capsys):
+    import opennovel.cli as cli
+
+    calls = []
+    monkeypatch.setattr(cli, "load_dotenv", lambda *a, **k: calls.append(1))
+    monkeypatch.setattr("sys.argv", ["opennovel"])
+    cli.main()
+    assert calls == [1]
+    assert "Novel-writing agent CLI" in capsys.readouterr().out
+

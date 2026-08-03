@@ -25,8 +25,32 @@ def test_chat_message_and_request_construction():
     msg = ChatMessage(role="user", content="写一段")
     req = CompletionRequest(messages=[msg], model="deepseek-chat", max_tokens=512)
     assert req.messages[0].content == "写一段"
-    assert req.temperature == 0.7
+    assert req.temperature is None  # falls back to provider defaults
     assert req.schema is None
+
+
+def test_provider_defaults_fill_request_knobs():
+    provider = FakeProvider(model="fake", temperature=0.9, max_tokens=2048)
+    provider.enqueue("x")
+    provider.complete(CompletionRequest(messages=[ChatMessage(role="user", content="hi")]))
+    sent = provider.calls[0]
+    assert sent.temperature == 0.9
+    assert sent.max_tokens == 2048
+
+
+def test_request_knobs_override_provider_defaults():
+    provider = FakeProvider(model="fake", temperature=0.9, max_tokens=2048)
+    provider.enqueue("x")
+    provider.complete(
+        CompletionRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            temperature=0.1,
+            max_tokens=100,
+        )
+    )
+    sent = provider.calls[0]
+    assert sent.temperature == 0.1
+    assert sent.max_tokens == 100
 
 
 def test_provider_from_env_missing_key_raises(monkeypatch):

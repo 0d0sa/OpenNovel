@@ -2,6 +2,8 @@
 
 import argparse
 
+from dotenv import load_dotenv
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="opennovel", description="Novel-writing agent CLI")
@@ -12,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:

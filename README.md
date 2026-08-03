@@ -17,20 +17,29 @@ Scaffold + 数据模型 + LLM Provider（MVP 第一步、第二步完成）：`m
 ## LLM 配置 / LLM config
 
 Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千问 / 智谱 GLM / Moonshot 等），
-通过环境变量配置（缺 API key 或 model 时命令行会报清晰错误）。
-参考 `.env.example`（目前 CLI 不自动加载 `.env`，需先 `source .env`）：
+全部通过环境变量配置（缺 API key 或 model 时命令行会报清晰错误）。
+参考 `.env.example`：`cp .env.example .env` 后按服务商填写，CLI 启动时自动加载（python-dotenv）。
 
-```bash
-export OPENNOVEL_LLM_API_KEY=sk-xxx          # 或 OPENAI_API_KEY
-export OPENNOVEL_LLM_MODEL=deepseek-chat     # 模型名，按服务商填
-export OPENNOVEL_LLM_BASE_URL=https://api.deepseek.com/v1   # 可选；不设则用 OpenAI 官方端点
-```
+主要配置项（前缀 `OPENNOVEL_`）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `OPENNOVEL_LLM_API_KEY` | - | API 密钥（必填，或用 `OPENAI_API_KEY`） |
+| `OPENNOVEL_LLM_MODEL` | - | 模型名（必填） |
+| `OPENNOVEL_LLM_BASE_URL` | OpenAI 官方 | 服务地址 |
+| `OPENNOVEL_LLM_TEMPERATURE` | 0.7 | 采样温度（规划大纲调低更稳定，写正文调高更丰富） |
+| `OPENNOVEL_LLM_MAX_TOKENS` | 4096 | 单次调用 token 上限（推理模型需留思考余量） |
+| `OPENNOVEL_LANGUAGE` | zh | 成书语言 |
+| `OPENNOVEL_CHAPTER_TARGET_CHARS` | 3000 | 每章目标字数 |
+| `OPENNOVEL_MAX_CHAPTERS` | 20 | 最大章节数 |
+| `OPENNOVEL_OUTPUT_DIR` | novels | 成书输出目录 |
 
 ## 目录结构 / Structure
 
 ```
 src/opennovel/
   cli.py            CLI 入口（write 命令占位）
+  config.py         应用配置：Settings + load_settings（读 OPENNOVEL_* 环境变量）
   models/
     novel.py        数据模型：Novel（聚合根）/ Chapter / Scene / Character
     storage.py      JSON 持久化（每书一个 novels/<title>/novel.json）

@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from typing import Mapping
 
+from opennovel.config import Settings, load_settings
 from opennovel.llm.provider import OpenAICompatibleProvider, Provider
-
-ENV_API_KEY = "OPENNOVEL_LLM_API_KEY"
-ENV_BASE_URL = "OPENNOVEL_LLM_BASE_URL"
-ENV_MODEL = "OPENNOVEL_LLM_MODEL"
 
 
 class ProviderConfigError(RuntimeError):
@@ -17,20 +13,25 @@ class ProviderConfigError(RuntimeError):
 
 
 def provider_from_env(env: Mapping[str, str] | None = None) -> Provider:
-    """Build a provider from env vars.
+    """Build a provider from env vars (via `Settings`).
 
     - OPENNOVEL_LLM_API_KEY: required (falls back to OPENAI_API_KEY)
+    - OPENNOVEL_LLM_MODEL: required
     - OPENNOVEL_LLM_BASE_URL: optional; omit to use OpenAI's official endpoint
-    - OPENNOVEL_LLM_MODEL: required, e.g. deepseek-chat
+    - OPENNOVEL_LLM_TEMPERATURE / OPENNOVEL_LLM_MAX_TOKENS: defaults used for
+      every request unless overridden
     """
-    env = os.environ if env is None else env
-    api_key = env.get(ENV_API_KEY) or env.get("OPENAI_API_KEY")
-    if not api_key:
+    settings = load_settings(env)
+    if not settings.llm_api_key:
         raise ProviderConfigError(
-            f"missing API key: set {ENV_API_KEY} (or OPENAI_API_KEY)"
+            "missing API key: set OPENNOVEL_LLM_API_KEY (or OPENAI_API_KEY)"
         )
-    model = env.get(ENV_MODEL)
-    if not model:
-        raise ProviderConfigError(f"missing model: set {ENV_MODEL}")
-    base_url = env.get(ENV_BASE_URL) or None
-    return OpenAICompatibleProvider(api_key=api_key, base_url=base_url, model=model)
+    if not settings.llm_model:
+        raise ProviderConfigError("missing model: set OPENNOVEL_LLM_MODEL")
+    return OpenAICompatibleProvider(
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+    )

@@ -6,6 +6,7 @@ subclassing it without touching upper layers.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from abc import ABC, abstractmethod
 
@@ -21,10 +22,18 @@ class LLMError(RuntimeError):
 
 
 class Provider(ABC):
-    """Abstract LLM provider. `model` is the fallback when requests omit one."""
+    """Abstract LLM provider. `model`/`temperature`/`max_tokens` are the
+    fallback values used when a request does not override them."""
 
-    def __init__(self, model: str):
+    def __init__(
+        self,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
         self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
 
     @abstractmethod
     def complete(self, request: CompletionRequest) -> CompletionResponse:
@@ -33,12 +42,24 @@ class Provider(ABC):
     def complete_structured(
         self, request: CompletionRequest, schema: type[BaseModel]
     ) -> BaseModel:
-        """Call `complete` expecting JSON, parse and validate against `schema`."""
+        """Call `complete` expecting JSON, parse and validate against `schema`.
+
+        The schema is injected into the system prompt: `json_object` mode only
+        guarantees valid JSON, not JSON that matches our schema.
+        """
+        schema_json = json.dumps(
+            schema.model_json_schema(), ensure_ascii=False, indent=2
+        )
+        hint = (
+            f"{JSON_HINT}\n"
+            "必须符合以下 JSON Schema 的字段结构（可省略 description）：\n"
+            f"{schema_json}"
+        )
         req = CompletionRequest(
-            messages=[ChatMessage(role="system", content=JSON_HINT), *request.messages],
+            messages=[ChatMessage(role="system", content=hint), *request.messages],
             model=request.model or self.model,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
+            temperature=request.temperature if request.temperature is not None else self.temperature,
+            max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
             schema=schema,
             extra=request.extra,
         )
@@ -57,8 +78,16 @@ class OpenAICompatibleProvider(Provider):
     Covers DeepSeek / 通义千问 / 智谱 GLM / Moonshot / OpenAI itself.
     """
 
-    def __init__(self, api_key: str, base_url: str | None, model: str, timeout: float = 60.0):
-        super().__init__(model)
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None,
+        model: str,
+        timeout: float = 60.0,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        super().__init__(model, temperature=temperature, max_tokens=max_tokens)
         from openai import OpenAI
 
         self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
@@ -71,8 +100,8 @@ class OpenAICompatibleProvider(Provider):
             raw = self._client.chat.completions.create(
                 model=request.model or self.model,
                 messages=[m.__dict__ for m in request.messages],
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
+                temperature=request.temperature if request.temperature is not None else self.temperature,
+                max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
                 **kwargs,
             )
         except Exception as exc:
@@ -86,12 +115,23 @@ class OpenAICompatibleProvider(Provider):
 class FakeProvider(Provider):
     """Deterministic in-memory provider for tests (no network)."""
 
-    def __init__(self, model: str = "fake", replies: list[str] | None = None):
-        super().__init__(model)
+    def __init__(
+        self,
+        model: str = "fake",
+        replies: list[str] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        super().__init__(model, temperature=temperature, max_tokens=max_tokens)
         self.replies = list(replies or [])
         self.calls: list[CompletionRequest] = []
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
+        request = dataclasses.replace(
+            request,
+            temperature=request.temperature if request.temperature is not None else self.temperature,
+            max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
+        )
         self.calls.append(request)
         text = self.replies.pop(0) if self.replies else ""
         return CompletionResponse(text=text, model=self.model)
