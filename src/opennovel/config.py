@@ -21,6 +21,7 @@ ENV_LANGUAGE = "OPENNOVEL_LANGUAGE"
 ENV_CHAPTER_TARGET_CHARS = "OPENNOVEL_CHAPTER_TARGET_CHARS"
 ENV_MAX_CHAPTERS = "OPENNOVEL_MAX_CHAPTERS"
 ENV_OUTPUT_DIR = "OPENNOVEL_OUTPUT_DIR"
+ENV_STYLE_CHECK = "OPENNOVEL_STYLE_CHECK"
 
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 4096
@@ -39,6 +40,7 @@ class Settings:
     chapter_target_chars: int = 3000
     max_chapters: int = 20
     output_dir: Path = Path("novels")
+    style_check: bool = True
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -58,7 +60,15 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         chapter_target_chars=_int(env, ENV_CHAPTER_TARGET_CHARS, 3000),
         max_chapters=_int(env, ENV_MAX_CHAPTERS, 20),
         output_dir=Path(env.get(ENV_OUTPUT_DIR, "novels")),
+        style_check=_bool(env, ENV_STYLE_CHECK, True),
     )
+
+
+def _bool(env: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = env.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
 
 
 def _int(env: Mapping[str, str], name: str, default: int) -> int:

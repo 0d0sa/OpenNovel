@@ -5,13 +5,23 @@
 """
 
 from opennovel.memory.plot_state import CharacterRecord, EventRecord, PlotState, SetupRecord
-from opennovel.memory.style_profile import StyleProfile
+from opennovel.memory.style_profile import (
+    StyleDeviation,
+    StyleProfile,
+    check_style_deviation,
+    extract_style_profile,
+    style_anchor_block,
+)
 
 __all__ = [
     "CharacterRecord",
     "EventRecord",
     "PlotState",
     "SetupRecord",
+    "StyleDeviation",
     "StyleProfile",
+    "check_style_deviation",
+    "extract_style_profile",
+    "style_anchor_block",
 ]
 

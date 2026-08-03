@@ -11,8 +11,11 @@ novel fragments and chapters.
 
 ## 当前状态 / Status
 
-Scaffold + 数据模型 + LLM Provider（MVP 第一步、第二步完成）：`models/`（Pydantic v2 + JSON 持久化）、
-`llm/`（openai SDK 兼容层）已实现；memory 逻辑、Agent 编排尚未实现。
+## 当前状态 / Status
+
+Scaffold + 数据模型 + LLM Provider + 风格记忆（MVP 第一~三步完成）：`models/`（Pydantic v2 + JSON 持久化）、
+`llm/`（openai SDK 兼容层）、`memory/style_profile.py`（前置提取 + 锚点注入 + 章节级风格检查）已实现；
+剧情记忆逻辑、Agent 编排尚未实现。
 
 ## LLM 配置 / LLM config
 
@@ -33,6 +36,7 @@ Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千�
 | `OPENNOVEL_CHAPTER_TARGET_CHARS` | 3000 | 每章目标字数 |
 | `OPENNOVEL_MAX_CHAPTERS` | 20 | 最大章节数 |
 | `OPENNOVEL_OUTPUT_DIR` | novels | 成书输出目录 |
+| `OPENNOVEL_STYLE_CHECK` | on | 章节级风格一致性检查开关 |
 
 ## 目录结构 / Structure
 
@@ -48,7 +52,7 @@ src/opennovel/
     provider.py     Provider 抽象基类 + OpenAI 兼容实现 + FakeProvider（测试用）
     registry.py     工厂：从环境变量配置 Provider
   memory/
-    style_profile.py  语言风格锚点（StyleProfile，服务风格一致性）
+    style_profile.py  风格锚点：StyleProfile / 提取 / 锚点块 / 偏离检查（服务风格一致性）
     plot_state.py     剧情状态：人物/事件/伏笔（PlotState，服务剧情连贯性）
   agent/
     orchestrator.py   剧情 -> 场景/章节的编排流程（占位）
@@ -71,5 +75,6 @@ uv run opennovel       # 运行 CLI（仅占位）
 
 - [x] 数据模型（Novel / Chapter / Scene / Character + JSON 持久化）
 - [x] LLM provider 接入（openai SDK + OpenAI 兼容服务）
-- [ ] style_profile / plot_state 逻辑（提取、更新、一致性检查）
+- [x] style_profile 逻辑（前置提取 / 锚点注入 / 章节级检查）
+- [ ] plot_state 逻辑（更新、一致性检查）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文
