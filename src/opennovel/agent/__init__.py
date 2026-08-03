@@ -1,5 +1,29 @@
-"""Agent orchestration (scaffold only).
+"""Agent orchestration (MVP step 5): plot (剧情) -> chapters.
 
-Planned flow: user plot (剧情) -> scene/chapter outlines -> generated text,
-reading/writing style_profile and plot_state at every step.
+`write_novel` in `orchestrator.py` runs the full pipeline; `planning.py`
+holds the per-step LLM prompts (outline / scenes / writing / rewrite).
 """
+
+from opennovel.agent.planning import (
+    ChapterPlan,
+    ChapterPlanList,
+    ScenePlanList,
+    plan_chapters,
+    plan_scenes,
+    rewrite_chapter,
+    write_scene,
+)
+from opennovel.agent.orchestrator import chapter_text, export_novel_text, write_novel
+
+__all__ = [
+    "ChapterPlan",
+    "ChapterPlanList",
+    "ScenePlanList",
+    "chapter_text",
+    "export_novel_text",
+    "plan_chapters",
+    "plan_scenes",
+    "rewrite_chapter",
+    "write_novel",
+    "write_scene",
+]

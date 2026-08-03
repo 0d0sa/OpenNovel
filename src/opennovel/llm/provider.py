@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import time
 from abc import ABC, abstractmethod
+
+from openai import RateLimitError
+from pydantic import BaseModel
 
 from pydantic import BaseModel
 
 from opennovel.llm.types import ChatMessage, CompletionRequest, CompletionResponse
 
 JSON_HINT = "请以 JSON 输出，不要输出任何其他内容。"
+
+MAX_ATTEMPTS = 5
 
 
 class LLMError(RuntimeError):
@@ -86,26 +92,40 @@ class OpenAICompatibleProvider(Provider):
         timeout: float = 60.0,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        call_interval: float = 0.0,
     ):
         super().__init__(model, temperature=temperature, max_tokens=max_tokens)
+        self.call_interval = call_interval
         from openai import OpenAI
 
         self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
+        if self.call_interval > 0:
+            time.sleep(self.call_interval)
         kwargs: dict = {}
         if request.schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
-        try:
-            raw = self._client.chat.completions.create(
-                model=request.model or self.model,
-                messages=[m.__dict__ for m in request.messages],
-                temperature=request.temperature if request.temperature is not None else self.temperature,
-                max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
-                **kwargs,
-            )
-        except Exception as exc:
-            raise LLMError(f"LLM call failed: {exc}") from exc
+        last_exc: Exception | None = None
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                raw = self._client.chat.completions.create(
+                    model=request.model or self.model,
+                    messages=[m.__dict__ for m in request.messages],
+                    temperature=request.temperature if request.temperature is not None else self.temperature,
+                    max_tokens=request.max_tokens if request.max_tokens is not None else self.max_tokens,
+                    **kwargs,
+                )
+                break
+            except RateLimitError as exc:
+                last_exc = exc
+                if attempt == MAX_ATTEMPTS - 1:
+                    break
+                time.sleep(min(2**attempt * 2.0, 30.0))
+            except Exception as exc:
+                raise LLMError(f"LLM call failed: {exc}") from exc
+        if last_exc is not None:
+            raise LLMError(f"LLM call rate-limited after {MAX_ATTEMPTS} attempts: {last_exc}") from last_exc
 
         text = raw.choices[0].message.content or ""
         usage = raw.usage.model_dump() if raw.usage else None

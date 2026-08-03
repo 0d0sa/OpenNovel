@@ -17,6 +17,7 @@ ENV_BASE_URL = "OPENNOVEL_LLM_BASE_URL"
 ENV_MODEL = "OPENNOVEL_LLM_MODEL"
 ENV_TEMPERATURE = "OPENNOVEL_LLM_TEMPERATURE"
 ENV_MAX_TOKENS = "OPENNOVEL_LLM_MAX_TOKENS"
+ENV_LLM_INTERVAL = "OPENNOVEL_LLM_INTERVAL"
 ENV_LANGUAGE = "OPENNOVEL_LANGUAGE"
 ENV_CHAPTER_TARGET_CHARS = "OPENNOVEL_CHAPTER_TARGET_CHARS"
 ENV_MAX_CHAPTERS = "OPENNOVEL_MAX_CHAPTERS"
@@ -36,6 +37,7 @@ class Settings:
     llm_base_url: str | None = None
     llm_temperature: float = DEFAULT_TEMPERATURE
     llm_max_tokens: int = DEFAULT_MAX_TOKENS
+    llm_call_interval: float = 0.0  # 每次调用前的固定间隔秒数（低 rpm 配额用）
     # Novel generation (used by the orchestrator)
     language: str = "zh"
     chapter_target_chars: int = 3000
@@ -58,6 +60,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         llm_base_url=env.get(ENV_BASE_URL) or None,
         llm_temperature=_float(env, ENV_TEMPERATURE, DEFAULT_TEMPERATURE),
         llm_max_tokens=_int(env, ENV_MAX_TOKENS, DEFAULT_MAX_TOKENS),
+        llm_call_interval=_float(env, ENV_LLM_INTERVAL, 0.0),
         language=env.get(ENV_LANGUAGE, "zh"),
         chapter_target_chars=_int(env, ENV_CHAPTER_TARGET_CHARS, 3000),
         max_chapters=_int(env, ENV_MAX_CHAPTERS, 20),

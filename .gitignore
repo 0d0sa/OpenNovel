@@ -23,6 +23,9 @@ htmlcov/
 # Local planning / design / work log
 docs/
 
+# Generated novels (CLI output)
+novels/
+
 # OS / editor
 .DS_Store
 .idea/

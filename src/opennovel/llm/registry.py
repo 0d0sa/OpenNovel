@@ -34,4 +34,5 @@ def provider_from_env(env: Mapping[str, str] | None = None) -> Provider:
         model=settings.llm_model,
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_max_tokens,
+        call_interval=settings.llm_call_interval,
     )

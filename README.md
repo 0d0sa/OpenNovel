@@ -13,9 +13,21 @@ novel fragments and chapters.
 
 ## 当前状态 / Status
 
-Scaffold + 数据模型 + LLM Provider + 风格记忆 + 剧情记忆（MVP 第一~四步完成）：`models/`（Pydantic v2 + JSON 持久化）、
-`llm/`（openai SDK 兼容层）、`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）已实现；
-Agent 编排尚未实现。
+MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK 兼容层）、
+`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排：剧情→章节）全部实现，
+已用真实 API 跑通 1 章成书（含章节规划、逐场景写作、检查与状态更新）。
+
+## 使用 / Usage
+
+```bash
+uv run opennovel write --title 雾中城 --plot "少年雨夜进城寻找失踪的妹妹" --style "冷峻克制"
+# 或从文件读剧情：
+uv run opennovel write --title 雾中城 --plot-file plot.txt --max-chapters 5
+```
+
+产出 `novels/<title>/novel.json`（全书数据）与 `novels/<title>/novel.txt`（纯文本）。
+每章约 7 次 LLM 调用（风格提取 1 + 大纲 1 + 场景 1 + 正文 N + 检查 2 + 状态更新 1）；
+rpm 配额低的服务商请设置 `OPENNOVEL_LLM_INTERVAL`。
 
 ## LLM 配置 / LLM config
 
@@ -32,6 +44,7 @@ Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千�
 | `OPENNOVEL_LLM_BASE_URL` | OpenAI 官方 | 服务地址 |
 | `OPENNOVEL_LLM_TEMPERATURE` | 0.7 | 采样温度（规划大纲调低更稳定，写正文调高更丰富） |
 | `OPENNOVEL_LLM_MAX_TOKENS` | 4096 | 单次调用 token 上限（推理模型需留思考余量） |
+| `OPENNOVEL_LLM_INTERVAL` | 0 | 每次调用前固定等待秒数（低 rpm 配额的服务商设大些） |
 | `OPENNOVEL_LANGUAGE` | zh | 成书语言 |
 | `OPENNOVEL_CHAPTER_TARGET_CHARS` | 3000 | 每章目标字数 |
 | `OPENNOVEL_MAX_CHAPTERS` | 20 | 最大章节数 |
@@ -56,7 +69,8 @@ src/opennovel/
     style_profile.py  风格锚点：提取 / 锚点块 / 偏离检查（服务风格一致性）
     plot_state.py     剧情状态：增量更新 / 简报 / 一致性检查（服务剧情连贯性）
   agent/
-    orchestrator.py   剧情 -> 场景/章节的编排流程（占位）
+    orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
+    planning.py       章节/场景规划与写作/重写的 LLM 调用
 tests/              冒烟测试 + 数据模型测试
 ```
 
@@ -78,5 +92,5 @@ uv run opennovel       # 运行 CLI（仅占位）
 - [x] LLM provider 接入（openai SDK + OpenAI 兼容服务）
 - [x] style_profile 逻辑（前置提取 / 锚点注入 / 章节级检查）
 - [x] plot_state 逻辑（增量更新 / 简报注入 / 章节级检查）
-- [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文
+- [x] 编排流程：剧情 -> 章节大纲 -> 章节正文（真实 API 验证通过）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文
