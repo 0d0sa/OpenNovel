@@ -11,21 +11,24 @@ novel fragments and chapters.
 
 ## 当前状态 / Status
 
-Scaffold only — 目录骨架和占位模块，尚无真实实现。
+Scaffold + 数据模型（MVP 第一步）：`models/` 已实现（Pydantic v2 + JSON 持久化），
+memory 层基础类型已定义；LLM 接入、Agent 编排等尚未实现。
 
 ## 目录结构 / Structure
 
 ```
 src/opennovel/
   cli.py            CLI 入口（write 命令占位）
-  models/           数据模型：Novel / Chapter / Scene / Character
+  models/
+    novel.py        数据模型：Novel（聚合根）/ Chapter / Scene / Character
+    storage.py      JSON 持久化（每书一个 novels/<title>/novel.json）
   llm/              LLM provider 抽象层（SDK 选型待定）
   memory/
-    style_profile.py  语言风格锚点（服务风格一致性）
-    plot_state.py     剧情状态：人物/事件/伏笔（服务剧情连贯性）
+    style_profile.py  语言风格锚点（StyleProfile，服务风格一致性）
+    plot_state.py     剧情状态：人物/事件/伏笔（PlotState，服务剧情连贯性）
   agent/
     orchestrator.py   剧情 -> 场景/章节的编排流程（占位）
-tests/              冒烟测试
+tests/              冒烟测试 + 数据模型测试
 ```
 
 ## 开发 / Development
@@ -42,7 +45,7 @@ uv run opennovel       # 运行 CLI（仅占位）
 
 ## 路线图 / Roadmap
 
-- [ ] 数据模型（Novel / Chapter / Scene / Character）
+- [x] 数据模型（Novel / Chapter / Scene / Character + JSON 持久化）
 - [ ] LLM provider 接入（选型待定）
-- [ ] style_profile / plot_state 持久化
+- [ ] style_profile / plot_state 逻辑（提取、更新、一致性检查）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文

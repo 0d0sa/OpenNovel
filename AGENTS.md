@@ -13,7 +13,8 @@ Treat these as first-class architectural constraints, not afterthoughts. Any des
 
 - Python CLI scaffold only: `pyproject.toml` (hatchling, src layout), `src/opennovel/` placeholder modules, `tests/` smoke tests. No real agent logic yet.
 - Decisions already made: Python, CLI tool, native LLM SDK hand-written orchestration (no agent framework). LLM provider SDK is still open — confirm before adding.
-- Environment managed with `uv` (do NOT use system python, which is 3.9 and too old). `uv.lock` is committed; `pytest` is the only dev dependency (in `[dependency-groups] dev`).
+- Data models are done (MVP step 1): Pydantic v2, `Novel` as aggregate root holding `style_profile`/`plot_state`, JSON persistence per book (`novels/<title>/novel.json`). Runtime memory logic (extraction/updates/consistency checks) is still open — that is the next step.
+- Environment managed with `uv` (do NOT use system python, which is 3.9 and too old). `uv.lock` is committed; dev deps live in `[dependency-groups] dev`; runtime deps (pydantic) go in `[project] dependencies` then `uv sync --dev`.
 - No CI, no linter/formatter configured.
 
 ## Working conventions

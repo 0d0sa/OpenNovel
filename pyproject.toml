@@ -7,7 +7,7 @@ name = "opennovel"
 version = "0.1.0"
 description = "An agent that writes novels from user-provided plots, keeping language style consistent and plot coherent across the novel."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["pydantic>=2.0"]
 
 [dependency-groups]
 dev = ["pytest"]

@@ -1,7 +1,53 @@
-"""Data models describing a novel's structure (scaffold only).
+"""Data models describing a novel's structure.
 
-Placeholders:
-- Novel: top-level container (title, plot, chapters)
-- Chapter / Scene: hierarchical text units
-- Character: per-novel character records used for plot coherence
+`Novel` is the aggregate root: one Novel object is one book, and it holds the
+two consistency mechanisms (style_profile / plot_state) together with the
+chapter/scene tree — the unit of 语言风格一致性 and 剧情连贯性.
 """
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+from pydantic import BaseModel, Field
+
+from opennovel.memory import PlotState, StyleProfile
+
+
+class SceneStatus(StrEnum):
+    PLANNED = "planned"
+    WRITTEN = "written"
+
+
+class Scene(BaseModel):
+    """A scene: outline first, content filled in at writing time."""
+
+    summary: str = Field(description="场景大纲")
+    content: str = Field(default="", description="正文，写作后填充")
+    status: SceneStatus = SceneStatus.PLANNED
+
+
+class Chapter(BaseModel):
+    """A chapter: a planning unit and a container of scenes."""
+
+    title: str = Field(default="", description="章节标题")
+    outline: str = Field(default="", description="章节大纲")
+    scenes: list[Scene] = Field(default_factory=list)
+
+
+class Character(BaseModel):
+    """A character in the novel (used by plots/outlines; tracked in PlotState)."""
+
+    name: str = Field(description="角色名")
+    role: str = Field(default="", description="身份/定位")
+    details: str = Field(default="", description="关键背景/设定")
+
+
+class Novel(BaseModel):
+    """Aggregate root: one object = one book, holding style + plot state."""
+
+    title: str = Field(description="书名")
+    plot: str = Field(default="", description="用户提供的剧情（原始文本）")
+    style_profile: StyleProfile = Field(default_factory=StyleProfile)
+    plot_state: PlotState = Field(default_factory=PlotState)
+    chapters: list[Chapter] = Field(default_factory=list)
