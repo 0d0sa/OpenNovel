@@ -1,8 +1,9 @@
-"""Interactive REPL session (like a CLI coding agent UI).
+"""Chat-style interactive session (Claude Code like).
 
-Run `opennovel` with no subcommand to enter. Commands are dispatched through
-`handle_command(session, line)` — a pure-ish function that tests can drive
-without a real terminal.
+`opennovel` with no subcommand enters. `/` commands and free-text prompts are
+both accepted in the same input box; free text goes through LLM intent routing
+(`agent/intent.py`). Command dispatch stays in `handle_command` (pure-ish,
+testable without a terminal).
 """
 
 from __future__ import annotations
@@ -12,19 +13,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
 
-from opennovel.agent import write_novel
+from opennovel.agent import IntentKind, classify_intent, write_novel
 from opennovel.config import Settings
 from opennovel.llm import Provider
-from opennovel.models import Scene, SceneStatus, load_novel, save_novel
-from opennovel.ui.display import (
-    print_banner,
-    print_checks,
-    print_help,
-    print_status,
-    print_style,
-)
+from opennovel.models import Scene, SceneStatus, save_novel
+from opennovel.ui.chat import ChatStream
+from opennovel.ui.display import print_banner, print_checks, print_help, print_status, print_style
+from opennovel.ui.input import ChatInput
 
 
 @dataclass
@@ -32,6 +28,7 @@ class Session:
     provider: Provider
     settings: Settings
     console: Console
+    chat: ChatStream
     title: str = ""
     plot: str = ""
     style_hint: str = ""
@@ -49,6 +46,8 @@ class Session:
                     return ""
                 self.console.print("[dim]命令已执行，请继续回答：[/dim]" + prompt)
                 continue
+            if line:
+                self.chat.add_user(line)
             return line
 
     def say(self, text: str) -> None:
@@ -57,12 +56,13 @@ class Session:
 
 def run_repl(provider: Provider, settings: Settings) -> int:
     console = Console()
-    session = Session(provider=provider, settings=settings, console=console)
+    session = Session(provider=provider, settings=settings, console=console, chat=ChatStream(console))
     print_banner(console)
     print_help(console)
+    inp = ChatInput()
     while True:
         try:
-            line = console.input("[bold green]opennovel> [/bold green]")
+            line = inp.prompt()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]再见[/dim]")
             return 0
@@ -70,6 +70,7 @@ def run_repl(provider: Provider, settings: Settings) -> int:
         if not line:
             continue
         session.history.append(line)
+        session.chat.add_user(line)
         try:
             if not handle_command(session, line) or session.exiting:
                 return 0
@@ -103,8 +104,29 @@ def handle_command(session: Session, line: str) -> bool:
         else:
             session.say(f"[red]未知命令：{cmd}（/help 查看可用命令）[/red]")
     else:
-        _append_plot(session, line)
+        _route_free_text(session, line)
     return True
+
+
+def _route_free_text(session: Session, line: str) -> None:
+    intent = classify_intent(session.provider, line)
+    kind = intent.kind
+    if kind == IntentKind.REWRITE_CHAPTER and intent.chapter_no >= 1:
+        _cmd_rewrite(session, [str(intent.chapter_no)])
+    elif kind == IntentKind.START_NEW:
+        _cmd_new(session, [])
+    elif kind == IntentKind.WRITE_NOW:
+        _cmd_write(session)
+    elif kind == IntentKind.STATUS:
+        print_status(session.console, session.novel)
+    elif kind == IntentKind.CHECKS:
+        print_checks(session.console, session.novel)
+    elif kind == IntentKind.HELP:
+        print_help(session.console)
+    else:  # append_plot / other
+        if kind == IntentKind.OTHER and intent.suggestion:
+            session.say(f"[dim]（{intent.suggestion}）[/dim]")
+        _append_plot(session, line)
 
 
 def _append_plot(session: Session, line: str) -> None:
@@ -112,7 +134,7 @@ def _append_plot(session: Session, line: str) -> None:
         session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
         return
     session.plot = session.plot.rstrip() + "\n" + line
-    session.say("[dim]已追加到剧情：[/dim]" + line)
+    session.say("[dim]已追加到剧情[/dim]")
 
 
 def _cmd_new(session: Session, args: list[str]) -> None:
@@ -160,7 +182,8 @@ def _cmd_new(session: Session, args: list[str]) -> None:
     session.plot = plot
     session.style_hint = style_hint
     session.novel = None
-    session.say(f"[green]已创建：《{title}》，/write 开始写作[/green]")
+    session.chat.add_system(session.chat.stage_panel(f"已创建：《{title}》，说 /write 或“开始写作”"))
+    session.say("[dim]聊天输入可理解为自然语言指令（如“把第二章重写得更紧张”）[/dim]")
 
 
 def _cmd_write(session: Session) -> None:
@@ -169,13 +192,9 @@ def _cmd_write(session: Session) -> None:
         return
 
     def on_stage(stage: str) -> None:
-        session.console.print(
-            Panel(stage, border_style="blue", title="进度", expand=False)
-        )
+        session.chat.add_system(session.chat.stage_panel(stage))
 
-    def on_token(token: str) -> None:
-        session.console.print(token, end="", highlight=False)
-
+    session.chat.begin_stream()
     novel = write_novel(
         session.provider,
         session.settings,
@@ -184,12 +203,11 @@ def _cmd_write(session: Session) -> None:
         session.style_hint,
         on_progress=session.say,
         on_stage=on_stage,
-        on_token=on_token,
+        on_token=session.chat.feed,
     )
+    session.chat.end_stream()
     session.novel = novel
-    chars = sum(len(s.content) for ch in novel.chapters for s in ch.scenes)
-    session.console.print("\n")
-    session.say(f"[green]完成：《{novel.title}》{len(novel.chapters)} 章，约 {chars} 字[/green]")
+    session.chat.add_system(session.chat.summary_card(novel))
     path = session.settings.output_dir / novel.title / "novel.json"
     session.say(f"[dim]成书：{path}（/checks 查看检查报告）[/dim]")
 
@@ -200,7 +218,7 @@ def _cmd_rewrite(session: Session, args: list[str]) -> None:
         session.say("[yellow]还没有章节可重写[/yellow]")
         return
     if not args:
-        session.say("[red]用法：/rewrite N[/red]")
+        session.say("[red]用法：/rewrite N 或直接说“重写第N章”[/red]")
         return
     try:
         idx = int(args[0])
@@ -219,29 +237,20 @@ def _cmd_rewrite(session: Session, args: list[str]) -> None:
     if not text:
         session.say("[red]该章无正文[/red]")
         return
-    session.console.print(Panel(f"重写第{idx}章…", border_style="blue", expand=False))
+    session.chat.add_system(session.chat.stage_panel(f"重写第{idx}章…"))
 
-    def on_token(token: str) -> None:
-        session.console.print(token, end="", highlight=False)
-
+    session.chat.begin_stream()
     new_text = rewrite_chapter(
         session.provider,
         text,
         chapter.style_report,
         chapter.plot_report,
         style_anchor_block(novel.style_profile),
-        stream_callback=on_token,
+        stream_callback=session.chat.feed,
     )
+    session.chat.end_stream()
     chapter.scenes = [Scene(summary="重写稿", content=new_text, status=SceneStatus.WRITTEN)]
     chapter.style_report = None
     chapter.plot_report = None
     save_novel(novel, session.settings.output_dir / novel.title / "novel.json")
-    session.console.print("\n")
     session.say(f"[green]第{idx}章已重写并保存[/green]")
-
-
-def load_existing(session: Session) -> None:
-    """Load a previously written novel by title (used by /open)."""
-    path = session.settings.output_dir / session.title / "novel.json"
-    if path.exists():
-        session.novel = load_novel(path)

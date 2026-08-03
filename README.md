@@ -14,30 +14,32 @@ novel fragments and chapters.
 ## 当前状态 / Status
 
 MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK 兼容层 + 流式输出）、
-`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排：剧情→章节）、
-`ui/`（rich REPL 交互界面）全部实现，已用真实 API 跑通成书。
+`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排 + 意图路由）、
+`ui/`（Claude Code 风格聊天界面）全部实现，已用真实 API 跑通成书。
 
 ## 使用 / Usage
 
-### 交互模式（推荐）
+### 聊天交互模式（推荐）
 
 ```bash
 uv run opennovel
 ```
 
-进入 REPL 会话（rich 美化界面），命令：
+Claude Code 风格的聊天界面：底部输入框（Enter 提交、Shift+Enter 换行、`/` 命令自动补全、历史浏览），
+自然语言直接理解（LLM 意图路由，如"把第二章重写得更紧张"直达重写），正文流式滚动在聊天流中。
 
 | 命令 | 说明 |
 |---|---|
 | `/new` | 开始新书：书名 / 剧情（或 `--plot-file`）/ 风格 |
-| `/write` | 写作当前书（实时进度面板 + 正文流式输出） |
+| `/write` | 写作当前书（实时进度 + 正文流式输出） |
 | `/status` | 章节/字数/检查分数/剧情状态概览 |
 | `/style` | 查看当前风格锚点 |
 | `/checks` | 查看各章风格与剧情检查报告 |
 | `/rewrite N` | 手动重写第 N 章 |
 | `/help` `/exit` | 帮助 / 退出 |
 
-自由输入 = 给当前书追加剧情补充。
+自由输入（自然语言）示例：`帮我开一本新书叫《雾中城》`、`把第二章重写得更紧张`、
+`现在写到哪了`、`陈默后来叛变了`（=追加剧情）。
 
 ### 批量模式
 
@@ -94,8 +96,12 @@ src/opennovel/
     orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
     planning.py       章节/场景规划与写作/重写的 LLM 调用
   ui/
-    repl.py           REPL 会话：命令分发（/new /write /status /style /checks /rewrite）
+    chat.py           聊天流：消息/流式正文/章节完成卡片
+    input.py          prompt_toolkit 输入：多行/历史// 命令补全
+    repl.py           聊天会话：/命令 + 意图路由分发
     display.py        rich 渲染：面板/表格/检查报告
+  agent/
+    intent.py         LLM 意图路由：自然语言 -> 命令
 tests/              冒烟测试 + 数据模型测试
 ```
 
@@ -119,4 +125,5 @@ uv run opennovel       # 运行 CLI（仅占位）
 - [x] plot_state 逻辑（增量更新 / 简报注入 / 章节级检查）
 - [x] 编排流程：剧情 -> 章节大纲 -> 章节正文（真实 API 验证通过）
 - [x] 终端交互界面（rich REPL：/new /write /status /style /checks /rewrite + 流式输出）
+- [x] 聊天式界面（prompt_toolkit 输入 + LLM 意图路由，Claude Code 风格）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文
