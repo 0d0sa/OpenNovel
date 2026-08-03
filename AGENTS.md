@@ -20,4 +20,5 @@ Treat these as first-class architectural constraints, not afterthoughts. Any des
 
 - Commands: `uv sync --dev` to create/refresh `.venv`, then `uv run pytest` for tests and `uv run opennovel` for the CLI. Dependencies go in `[dependency-groups]` (new-style uv), not `optional-dependencies`.
 - Keep `README.md` in sync with the code: update it in the same change whenever files, commands, or structure change (user requirement).
+- Plans, design notes, and session records live in `docs/` (`docs/work-log.md`): append a short entry after each working session. `docs/` is gitignored — never commit it.
 - The user communicates product requirements in Chinese; keep product-facing terminology bilingual where useful (e.g., 剧情 / plot).

@@ -20,6 +20,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Local planning / design / work log
+docs/
+
 # OS / editor
 .DS_Store
 .idea/
