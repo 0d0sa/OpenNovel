@@ -22,7 +22,7 @@ COMMANDS = [
     ("exit", "退出"),
 ]
 
-PROMPT = "[bold green]opennovel>[/bold green] "
+PROMPT = "opennovel> "
 
 
 class CommandCompleter(Completer):
@@ -72,7 +72,12 @@ class ChatInput:
                 key_bindings=_bindings(),
                 multiline=True,
                 complete_while_typing=True,
-                style=Style.from_dict({"completion.menu.completion": "bg:#2d2d2d fg:#8be9fd"}),
+                style=Style.from_dict(
+                    {
+                        "prompt": "bold fg:ansigreen",
+                        "completion.menu.completion": "bg:#2d2d2d fg:#8be9fd",
+                    }
+                ),
             )
         text = self.session.prompt()
         return text.strip()

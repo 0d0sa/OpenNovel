@@ -118,6 +118,18 @@ def test_fullscreen_ask_flow(tmp_path):
     assert buffer.text == ""
 
 
+def test_fullscreen_header_shows_model(tmp_path):
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(model="deepseek-v4-flash"), Settings(output_dir=tmp_path))
+    assert "deepseek-v4-flash" in app._header_text("deepseek-v4-flash")
+    assert "OpenNovel" in app._header_text("m")
+    # layout: header / history / top line / input / bottom line
+    names = [type(c).__name__ for c in app.layout.container.children]
+    assert names == ["Window", "Window", "Window", "Window", "Window"]
+
+
 def test_fullscreen_exit_during_ask(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp

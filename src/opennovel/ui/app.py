@@ -16,7 +16,7 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl, Point, UIContent
 from prompt_toolkit.layout.dimension import Dimension
 
 from opennovel.config import Settings
@@ -25,6 +25,30 @@ from opennovel.ui import display
 from opennovel.ui.chat import ChatView
 from opennovel.ui.input import CommandCompleter
 from opennovel.ui.repl import Session, handle_command
+
+
+class CenteredInputControl(BufferControl):
+    """BufferControl that vertically centers its content in the window.
+
+    The input window has a fixed height; when the buffer wraps to fewer lines
+    than the window, the text is centered instead of top-aligned.
+    """
+
+    def create_content(self, width, height, preview_search=False):
+        content = super().create_content(width, height, preview_search)
+        n = content.line_count
+        if n >= height or height <= 0:
+            return content
+        top = (height - n) // 2
+        cursor = content.cursor_position
+        padded_cursor = Point(cursor.x, cursor.y + top) if cursor else None
+        return UIContent(
+            get_line=lambda i: content.get_line(i - top) if top <= i < top + n else [],
+            line_count=height,
+            cursor_position=padded_cursor,
+            menu_position=content.menu_position,
+            show_cursor=content.show_cursor,
+        )
 
 
 class FullScreenChatApp:
@@ -58,18 +82,36 @@ class FullScreenChatApp:
             completer=CommandCompleter(),
             accept_handler=self._on_accept,
         )
+        self.header_window = Window(
+            content=FormattedTextControl(
+                lambda: self._header_text(provider.model),
+                style="bold cyan",
+            ),
+            height=1,
+            always_hide_cursor=True,
+        )
         self.history_window = Window(
             content=FormattedTextControl(self._history_text),
             wrap_lines=True,
             always_hide_cursor=True,
         )
+        self.top_line = _divider()
         self.input_window = Window(
-            content=BufferControl(buffer=self.buffer, focus_on_click=True),
-            height=Dimension(min=1, max=3),
+            content=CenteredInputControl(buffer=self.buffer, focus_on_click=True),
+            height=Dimension(min=1, max=2),
             wrap_lines=True,
         )
+        self.bottom_line = _divider()
         self.layout = Layout(
-            HSplit([self.history_window, self.input_window]),
+            HSplit(
+                [
+                    self.header_window,
+                    self.history_window,
+                    self.top_line,
+                    self.input_window,
+                    self.bottom_line,
+                ]
+            ),
             focused_element=self.input_window,
         )
 
@@ -96,6 +138,13 @@ class FullScreenChatApp:
         )
 
     # --- history / input plumbing ---
+
+    @staticmethod
+    def _header_text(model: str) -> str:
+        text = " OpenNovel — 小说写作 Agent"
+        if model:
+            text += f"  [模型: {model}]"
+        return text
 
     def _history_text(self):
         return ANSI(self.view.ansi_text)
@@ -209,3 +258,13 @@ def _yellow(text: str):
     from rich.text import Text
 
     return Text(text, style="yellow")
+
+
+def _divider() -> Window:
+    """A 1-line horizontal separator drawn across the terminal width."""
+    from prompt_toolkit.formatted_text import FormattedText
+
+    def content():
+        return FormattedText([("class:divider", "─" * 400)])
+
+    return Window(content=FormattedTextControl(content), height=1)
