@@ -40,14 +40,21 @@ def main() -> int:
 def _cmd_interactive() -> int:
     from opennovel.config import load_settings
     from opennovel.llm import ProviderConfigError, provider_from_env
-    from opennovel.ui import run_repl
 
     try:
         provider = provider_from_env()
     except ProviderConfigError as exc:
         print(f"配置错误：{exc}", file=sys.stderr)
         return 1
-    return run_repl(provider, load_settings())
+    settings = load_settings()
+    try:
+        from opennovel.ui.app import FullScreenChatApp
+
+        return FullScreenChatApp(provider, settings).run()
+    except Exception:
+        from opennovel.ui import run_repl
+
+        return run_repl(provider, settings)
 
 
 def _cmd_write(args: argparse.Namespace) -> int:

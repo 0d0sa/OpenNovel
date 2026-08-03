@@ -53,6 +53,18 @@ class Session:
     def say(self, text: str) -> None:
         self.console.print(text)
 
+    def show_status(self) -> None:
+        print_status(self.console, self.novel)
+
+    def show_style(self) -> None:
+        print_style(self.console, getattr(self.novel, "style_profile", None))
+
+    def show_checks(self) -> None:
+        print_checks(self.console, self.novel)
+
+    def show_help(self) -> None:
+        print_help(self.console)
+
 
 def run_repl(provider: Provider, settings: Settings) -> int:
     console = Console()
@@ -88,17 +100,17 @@ def handle_command(session: Session, line: str) -> bool:
             session.exiting = True
             return False
         if cmd == "/help":
-            print_help(session.console)
+            session.show_help()
         elif cmd == "/new":
             _cmd_new(session, args)
         elif cmd == "/write":
             _cmd_write(session)
         elif cmd == "/status":
-            print_status(session.console, session.novel)
+            session.show_status()
         elif cmd == "/style":
-            print_style(session.console, getattr(session.novel, "style_profile", None))
+            session.show_style()
         elif cmd == "/checks":
-            print_checks(session.console, session.novel)
+            session.show_checks()
         elif cmd == "/rewrite":
             _cmd_rewrite(session, args)
         else:
@@ -118,15 +130,22 @@ def _route_free_text(session: Session, line: str) -> None:
     elif kind == IntentKind.WRITE_NOW:
         _cmd_write(session)
     elif kind == IntentKind.STATUS:
-        print_status(session.console, session.novel)
+        session.show_status()
     elif kind == IntentKind.CHECKS:
-        print_checks(session.console, session.novel)
+        session.show_checks()
     elif kind == IntentKind.HELP:
-        print_help(session.console)
+        session.show_help()
     else:  # append_plot / other
         if kind == IntentKind.OTHER and intent.suggestion:
-            session.say(f"[dim]（{intent.suggestion}）[/dim]")
+            session.say(f"（{_plain(intent.suggestion)}）")
         _append_plot(session, line)
+
+
+def _plain(text: str) -> str:
+    """Strip rich-markup-like [tag] tokens (LLM output safety)."""
+    import re
+
+    return re.sub(r"\[/?[a-zA-Z_][a-zA-Z0-9_]*\]", "", text)
 
 
 def _append_plot(session: Session, line: str) -> None:

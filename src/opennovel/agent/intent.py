@@ -21,7 +21,8 @@ INTENT_SYSTEM = """你是 OpenNovel 小说写作助手的意图分类器。把�
 - checks：询问检查报告、风格检查、剧情一致性
 - help：询问用法、能做什么
 - other：以上都不匹配（此时仍可给 suggestion）
-chapter_no 仅在 rewrite_chapter 时填，其他意图留 0。只输出 JSON，不要解释。"""
+chapter_no 仅在 rewrite_chapter 时填，其他意图留 0。suggestion 使用纯文本，不要包含任何 markdown 或方括号标记。
+只输出 JSON，不要解释。"""
 
 
 class IntentKind(StrEnum):

@@ -25,8 +25,10 @@ MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK �
 uv run opennovel
 ```
 
-Claude Code 风格的聊天界面：底部输入框（Enter 提交、Shift+Enter 换行、`/` 命令自动补全、历史浏览），
-自然语言直接理解（LLM 意图路由，如"把第二章重写得更紧张"直达重写），正文流式滚动在聊天流中。
+Claude Code / Codex 同款**全屏聊天界面**：上方聊天记录区（自动跟随底部），下方固定输入框
+（Enter 提交、Meta+Enter 换行、`/` 命令自动补全、历史浏览）。自然语言直接理解
+（LLM 意图路由，如"把第二章重写得更紧张"直达重写），正文流式滚动在聊天区中；
+写作期间输入框自动禁用。非 TTY 环境自动回退到控制台 REPL。
 
 | 命令 | 说明 |
 |---|---|
@@ -96,10 +98,11 @@ src/opennovel/
     orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
     planning.py       章节/场景规划与写作/重写的 LLM 调用
   ui/
-    chat.py           聊天流：消息/流式正文/章节完成卡片
+    app.py            全屏聊天应用：上聊天区/下输入框，后台工作线程，自动滚底
+    chat.py           聊天流：消息/流式正文/卡片 + rich→ANSI 桥接（ChatView）
     input.py          prompt_toolkit 输入：多行/历史// 命令补全
-    repl.py           聊天会话：/命令 + 意图路由分发
-    display.py        rich 渲染：面板/表格/检查报告
+    repl.py           控制台 REPL（非 TTY 回退）：/命令 + 意图路由分发
+    display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
   agent/
     intent.py         LLM 意图路由：自然语言 -> 命令
 tests/              冒烟测试 + 数据模型测试
@@ -126,4 +129,5 @@ uv run opennovel       # 运行 CLI（仅占位）
 - [x] 编排流程：剧情 -> 章节大纲 -> 章节正文（真实 API 验证通过）
 - [x] 终端交互界面（rich REPL：/new /write /status /style /checks /rewrite + 流式输出）
 - [x] 聊天式界面（prompt_toolkit 输入 + LLM 意图路由，Claude Code 风格）
+- [x] 全屏聊天界面（上聊天区/下输入框，Claude Code / Codex 同款）
 - [ ] 编排流程：剧情 -> 章节大纲 -> 章节正文

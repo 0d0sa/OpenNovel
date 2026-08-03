@@ -1,8 +1,13 @@
-"""Rich rendering helpers for the interactive UI."""
+"""Rich rendering helpers for the interactive UI.
+
+Functions return renderables (Table/Panel/Group/Text); the `print_*` wrappers
+render them to a console. This lets both the console REPL and the full-screen
+app share the same presentation.
+"""
 
 from __future__ import annotations
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -10,15 +15,14 @@ from rich.text import Text
 from opennovel.memory import StyleProfile
 from opennovel.models import Novel
 
-BANNER = """[bold cyan]OpenNovel[/bold cyan] — 小说写作 Agent
-输入 [bold]/help[/bold] 查看命令，[bold]/exit[/bold] 退出。自由输入 = 追加剧情补充。"""
+BANNER_TEXT = "OpenNovel — 小说写作 Agent（聊天输入 / 命令用 / 开头，输入 /help 查看帮助）"
 
 
-def print_banner(console: Console) -> None:
-    console.print(BANNER, style="cyan")
+def banner_text() -> Text:
+    return Text(BANNER_TEXT, style="cyan bold")
 
 
-def print_help(console: Console) -> None:
+def help_table() -> Table:
     table = Table(title="命令", show_header=False, box=None, padding=(0, 2))
     table.add_column("命令", style="bold")
     table.add_column("说明")
@@ -33,13 +37,10 @@ def print_help(console: Console) -> None:
         ("/exit", "退出"),
     ):
         table.add_row(cmd, desc)
-    console.print(table)
+    return table
 
 
-def print_status(console: Console, novel: Novel) -> None:
-    if novel is None:
-        console.print("[yellow]尚未开始任何书，先用 /new 开始[/yellow]")
-        return
+def status_view(novel: Novel) -> Group:
     table = Table(title=f"《{novel.title}》", show_header=True)
     table.add_column("章节", style="bold")
     table.add_column("字数", justify="right")
@@ -50,18 +51,16 @@ def print_status(console: Console, novel: Novel) -> None:
         style_score = ch.style_report.score if ch.style_report else "-"
         plot_score = ch.plot_report.score if ch.plot_report else "-"
         table.add_row(f"第{i}章 {ch.title}", str(chars), str(style_score), str(plot_score))
-    console.print(table)
     state = novel.plot_state
-    console.print(
-        f"[dim]剧情状态：{len(state.characters)} 角色 / {len(state.events)} 事件 / "
-        f"{len([s for s in state.setups if s.resolved_in is None])} 个未回收伏笔[/dim]"
+    summary = Text(
+        f"剧情状态：{len(state.characters)} 角色 / {len(state.events)} 事件 / "
+        f"{len([s for s in state.setups if s.resolved_in is None])} 个未回收伏笔",
+        style="dim",
     )
+    return Group(table, summary)
 
 
-def print_style(console: Console, profile: StyleProfile) -> None:
-    if profile is None:
-        console.print("[yellow]尚未开始任何书，先用 /new 开始[/yellow]")
-        return
+def style_panel(profile: StyleProfile) -> Panel:
     lines = [
         f"文风基调：{profile.tone or '-'}",
         f"视角人称：{profile.pov or '-'}",
@@ -71,38 +70,61 @@ def print_style(console: Console, profile: StyleProfile) -> None:
     body = "\n".join(lines)
     if profile.sample_passage:
         body += "\n\n[bold]风格样本：[/bold]\n" + profile.sample_passage
-    console.print(Panel(body, title="风格锚点", border_style="cyan"))
+    return Panel(body, title="风格锚点", border_style="cyan")
 
 
-def print_checks(console: Console, novel: Novel) -> None:
+def checks_group(novel: Novel) -> Group:
     if novel is None or not novel.chapters:
-        console.print("[yellow]还没有章节[/yellow]")
-        return
+        return Group(Text("还没有章节", style="yellow"))
+    items: list = []
     for i, ch in enumerate(novel.chapters, 1):
-        console.print(f"\n[bold]第{i}章 {ch.title}[/bold]")
+        items.append(Text(f"第{i}章 {ch.title}", style="bold"))
         if ch.style_report is None and ch.plot_report is None:
-            console.print("  [dim]（未检查）[/dim]")
+            items.append(Text("  （未检查）", style="dim"))
         if ch.style_report is not None:
             r = ch.style_report
             color = "green" if r.score < 3 else "red"
-            console.print(f"  [bold]风格检查[/bold] 偏离度 [{color}]{r.score}/5[/{color}]")
+            items.append(Text(f"  风格检查 偏离度 {r.score}/5", style=color))
             for d in r.deviations:
-                console.print(f"    [yellow]- {d}[/yellow]")
+                items.append(Text(f"    - {d}", style="yellow"))
             if r.suggestion:
-                console.print(f"    [dim]建议：{r.suggestion}[/dim]")
+                items.append(Text(f"    建议：{r.suggestion}", style="dim"))
         if ch.plot_report is not None:
             r = ch.plot_report
             color = "green" if r.score < 3 else "red"
-            console.print(f"  [bold]剧情检查[/bold] 矛盾度 [{color}]{r.score}/5[/{color}]")
+            items.append(Text(f"  剧情检查 矛盾度 {r.score}/5", style=color))
             for c in r.contradictions:
-                console.print(f"    [yellow]- {c}[/yellow]")
+                items.append(Text(f"    - {c}", style="yellow"))
             if r.suggestion:
-                console.print(f"    [dim]建议：{r.suggestion}[/dim]")
+                items.append(Text(f"    建议：{r.suggestion}", style="dim"))
+        items.append(Text(""))
+    return Group(*items)
 
 
-def print_stage_panel(console: Console, stage: str) -> None:
-    console.print(Panel(Text(stage, style="bold yellow"), border_style="blue", title="进度"))
+# --- console wrappers (console REPL / tests) ---
 
 
-def prompt_text(console: Console, prompt: str) -> str:
-    return console.input(f"[bold cyan]{prompt}[/bold cyan] ").strip()
+def print_banner(console: Console) -> None:
+    console.print(banner_text())
+
+
+def print_help(console: Console) -> None:
+    console.print(help_table())
+
+
+def print_status(console: Console, novel: Novel) -> None:
+    if novel is None:
+        console.print("[yellow]尚未开始任何书，先用 /new 开始[/yellow]")
+        return
+    console.print(status_view(novel))
+
+
+def print_style(console: Console, profile: StyleProfile) -> None:
+    if profile is None:
+        console.print("[yellow]尚未开始任何书，先用 /new 开始[/yellow]")
+        return
+    console.print(style_panel(profile))
+
+
+def print_checks(console: Console, novel: Novel) -> None:
+    console.print(checks_group(novel))
