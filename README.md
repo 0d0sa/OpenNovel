@@ -99,15 +99,14 @@ src/opennovel/
   agent/
     orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
     planning.py       章节/场景规划与写作/重写的 LLM 调用
+    intent.py         LLM 意图路由：自然语言 -> 命令
   ui/
-    app.py            全屏聊天应用：上聊天区/下输入框，后台工作线程，自动滚底
+    app.py            全屏聊天应用：状态栏/会话区/输入区 + 键盘提示 footer，后台工作线程
     chat.py           聊天流：消息/流式正文/卡片 + rich→ANSI 桥接（ChatView）
-    input.py          prompt_toolkit 输入：多行/历史// 命令补全
+    input.py          prompt_toolkit 输入：多行/历史/命令补全（共享 UI_STYLE 主题）
     repl.py           控制台 REPL（非 TTY 回退）：/命令 + 意图路由分发
     display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
     theme.py          共享终端视觉规范：配色 + prompt_toolkit 样式
-  agent/
-    intent.py         LLM 意图路由：自然语言 -> 命令
 tests/              冒烟测试 + 数据模型测试
 ```
 
