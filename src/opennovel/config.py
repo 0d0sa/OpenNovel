@@ -52,12 +52,17 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
 
     `llm_api_key` also falls back to OPENAI_API_KEY; `llm_base_url` defaults
     to None (OpenAI official endpoint). Invalid numeric values raise ValueError.
+
+    Priority: if a user settings file exists (settings_store) and its active
+    profile is valid, the profile's base_url / api_key / model override the
+    environment (config file wins).
     """
     env = os.environ if env is None else env
+    profile = _active_profile_from_store()
     return Settings(
-        llm_api_key=env.get(ENV_API_KEY) or env.get("OPENAI_API_KEY") or "",
-        llm_model=env.get(ENV_MODEL, ""),
-        llm_base_url=env.get(ENV_BASE_URL) or None,
+        llm_api_key=profile.api_key if profile else (env.get(ENV_API_KEY) or env.get("OPENAI_API_KEY") or ""),
+        llm_model=profile.model if profile else env.get(ENV_MODEL, ""),
+        llm_base_url=profile.base_url if profile else (env.get(ENV_BASE_URL) or None),
         llm_temperature=_float(env, ENV_TEMPERATURE, DEFAULT_TEMPERATURE),
         llm_max_tokens=_int(env, ENV_MAX_TOKENS, DEFAULT_MAX_TOKENS),
         llm_call_interval=_float(env, ENV_LLM_INTERVAL, 0.0),
@@ -68,6 +73,19 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         style_check=_bool(env, ENV_STYLE_CHECK, True),
         plot_check=_bool(env, ENV_PLOT_CHECK, True),
     )
+
+
+def _active_profile_from_store():
+    """Best-effort: load the active profile from the user settings file."""
+    from opennovel.settings_store import load_user_settings
+
+    try:
+        settings = load_user_settings()
+    except Exception:
+        return None
+    if settings is None:
+        return None
+    return settings.active_profile()
 
 
 def _bool(env: Mapping[str, str], name: str, default: bool) -> bool:

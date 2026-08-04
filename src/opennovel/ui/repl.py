@@ -36,18 +36,42 @@ class Session:
     novel: object = None
     history: list[str] = field(default_factory=list)
     exiting: bool = False
+    user_settings: object = None
+    on_provider_change: object = None
 
-    def ask(self, prompt: str) -> str:
+    def ensure_user_settings(self):
+        """Load user settings file (cached); returns UserSettings or None."""
+        if self.user_settings is None:
+            from opennovel.settings_store import load_user_settings
+
+            self.user_settings = load_user_settings()
+        return self.user_settings
+
+    def switch_provider(self, profile) -> None:
+        """Rebuild the provider from a profile and notify the UI."""
+        from opennovel.llm import build_provider_from_profile
+
+        self.provider = build_provider_from_profile(profile, self.settings)
+        if self.on_provider_change is not None:
+            self.on_provider_change()
+
+    def ask(self, prompt: str, *, secret: bool = False) -> str:
         """Read a line, dispatching `/` commands instead of treating them as answers."""
         while True:
-            line = self.console.input(f"[bold cyan]{prompt}[/bold cyan] ").strip()
+            formatted_prompt = f"[bold cyan]{prompt}[/bold cyan] "
+            if secret:
+                line = self.console.input(formatted_prompt, password=True).strip()
+            else:
+                line = self.console.input(formatted_prompt).strip()
             if line.startswith("/"):
                 handle_command(self, line)
                 if self.exiting:
                     return ""
                 self.console.print("[dim]命令已执行，请继续回答：[/dim]" + prompt)
                 continue
-            if line:
+            if secret and line:
+                self.chat.add_user("••••••••")
+            elif line:
                 self.chat.add_user(line)
             return line
 
@@ -114,6 +138,10 @@ def handle_command(session: Session, line: str) -> bool:
             session.show_checks()
         elif cmd == "/rewrite":
             _cmd_rewrite(session, args)
+        elif cmd == "/setting":
+            _cmd_setting(session, args)
+        elif cmd == "/model":
+            _cmd_model(session, args)
         else:
             session.say(f"[red]未知命令：{cmd}（/help 查看可用命令）[/red]")
     else:
@@ -160,6 +188,152 @@ def _plain(text: str) -> str:
     import re
 
     return re.sub(r"\[/?[a-zA-Z_][a-zA-Z0-9_]*\]", "", text)
+
+
+def _cmd_setting(session: Session, args: list[str]) -> None:
+    """Manage named LLM profiles: wizard, flags, --list, --remove."""
+    from opennovel.settings_store import ProfileConfig, UserSettings, mask_key, save_user_settings
+
+    if "--list" in args:
+        _list_profiles(session)
+        return
+    if "--remove" in args:
+        idx = args.index("--remove")
+        if idx + 1 >= len(args):
+            session.say("[red]用法：/setting --remove NAME[/red]")
+            return
+        _remove_profile(session, args[idx + 1])
+        return
+
+    flags = {}
+    for key in ("--name", "--base-url", "--api-key", "--model"):
+        if key in args:
+            i = args.index(key)
+            if i + 1 >= len(args):
+                session.say(f"[red]{key} 缺少值[/red]")
+                return
+            flags[key[2:].replace("-", "_")] = args[i + 1]
+
+    if flags:
+        name = flags.get("name")
+        api_key = flags.get("api_key")
+        model = flags.get("model")
+        if not name or not api_key or not model:
+            session.say("[red]参数式设置需提供 --name --api-key --model（--base-url 可选）[/red]")
+            return
+        profile = ProfileConfig(
+            name=name,
+            base_url=flags.get("base_url") or None,
+            api_key=api_key,
+            model=model,
+        )
+        _save_and_activate(session, profile)
+        return
+
+    # wizard
+    name = session.ask("配置名（如 deepseek）：")
+    if session.exiting:
+        return
+    if not name:
+        session.say("[red]配置名不能为空[/red]")
+        return
+    base_url = session.ask("base URL（回车跳过 = OpenAI 官方）：")
+    if session.exiting:
+        return
+    api_key = session.ask("API key：", secret=True)
+    if session.exiting:
+        return
+    if not api_key:
+        session.say("[red]API key 不能为空[/red]")
+        return
+    model = session.ask("模型名：")
+    if session.exiting:
+        return
+    if not model:
+        session.say("[red]模型名不能为空[/red]")
+        return
+    profile = ProfileConfig(name=name, base_url=base_url or None, api_key=api_key, model=model)
+    _save_and_activate(session, profile)
+
+
+def _save_and_activate(session: Session, profile) -> None:
+    from opennovel.settings_store import UserSettings, save_user_settings
+
+    us = session.ensure_user_settings() or UserSettings()
+    us.profiles[profile.name] = profile
+    us.active = profile.name
+    save_user_settings(us)
+    session.user_settings = us
+    session.switch_provider(profile)
+    session.say(f"[green]已保存并切换到 {profile.name}（{profile.model}）[/green]")
+
+
+def _list_profiles(session: Session) -> None:
+    us = session.ensure_user_settings()
+    if us is None or not us.profiles:
+        session.say("[yellow]还没有任何配置，用 /setting 添加[/yellow]")
+        return
+    from opennovel.settings_store import mask_key
+
+    lines = ["[bold]已配置的模型：[/bold]"]
+    for i, (name, p) in enumerate(us.profiles.items(), 1):
+        mark = "[green]*[/green]" if name == us.active else " "
+        lines.append(
+            f"  {mark} {i}. {name}  {p.model}  "
+            f"{p.base_url or 'OpenAI 官方'}  {mask_key(p.api_key)}"
+        )
+    session.say("\n".join(lines))
+
+
+def _remove_profile(session: Session, name: str) -> None:
+    from opennovel.settings_store import UserSettings, save_user_settings
+
+    us = session.ensure_user_settings() or UserSettings()
+    if name not in us.profiles:
+        session.say(f"[red]未找到配置：{name}[/red]")
+        return
+    was_active = us.active == name
+    del us.profiles[name]
+    if was_active:
+        us.active = ""
+    save_user_settings(us)
+    session.user_settings = us
+    session.say(f"[green]已删除配置：{name}[/green]")
+
+
+def _cmd_model(session: Session, args: list[str]) -> None:
+    """Switch the active model profile."""
+    us = session.ensure_user_settings()
+    if us is None or not us.profiles:
+        session.say("[yellow]还没有任何配置，先 /setting 添加[/yellow]")
+        return
+    target = args[0] if args else ""
+    if not target:
+        _list_profiles(session)
+        target = session.ask("输入配置名或序号切换（回车取消）：")
+        if session.exiting or not target:
+            return
+    if target.isdigit():
+        names = list(us.profiles)
+        idx = int(target)
+        if not 1 <= idx <= len(names):
+            session.say(f"[red]序号超出范围（1-{len(names)}）[/red]")
+            return
+        target = names[idx - 1]
+    profile = us.profiles.get(target)
+    if profile is None:
+        session.say(f"[red]未找到配置：{target}[/red]")
+        return
+    if profile.name == us.active:
+        session.say(f"[dim]当前已在使用 {target}[/dim]")
+        return
+    us.active = profile.name
+    from opennovel.settings_store import save_user_settings
+
+    save_user_settings(us)
+    session.user_settings = us
+    session.switch_provider(profile)
+    session.say(f"[green]已切换到 {profile.name}（{profile.model}）[/green]")
 
 
 def _append_plot(session: Session, line: str) -> None:

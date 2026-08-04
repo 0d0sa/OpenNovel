@@ -30,8 +30,12 @@ def welcome_panel(model: str = "") -> Panel:
     body.append("OpenNovel\n", style=f"bold {BRAND}")
     body.append("把剧情写成长篇故事，并持续守住文风与剧情连贯性。\n\n", style=TEXT)
     body.append(">  输入 ", style=MUTED)
-    body.append("/new", style=f"bold {TEXT}")
-    body.append(" 创建作品，或直接描述你想写的故事\n", style=MUTED)
+    if model:
+        body.append("/new", style=f"bold {TEXT}")
+        body.append(" 创建作品，或直接描述你想写的故事\n", style=MUTED)
+    else:
+        body.append("/setting", style=f"bold {TEXT}")
+        body.append(" 配置模型，然后开始创作\n", style=MUTED)
     body.append("   输入 ", style=MUTED)
     body.append("/help", style=f"bold {TEXT}")
     body.append(" 查看全部命令", style=MUTED)
@@ -64,6 +68,8 @@ def help_table() -> Table:
         ("/style", "查看当前风格锚点"),
         ("/checks", "查看各章检查报告"),
         ("/rewrite N", "手动重写第 N 章"),
+        ("/setting", "配置 LLM：向导 / --name --base-url --api-key --model / --list / --remove"),
+        ("/model", "切换已配置的模型（名称或序号）"),
         ("/help", "显示本帮助"),
         ("/exit", "退出"),
     ):

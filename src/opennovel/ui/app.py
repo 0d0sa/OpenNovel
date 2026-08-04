@@ -23,7 +23,7 @@ from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl, 
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.layout.menus import CompletionsMenu
-from prompt_toolkit.layout.processors import BeforeInput
+from prompt_toolkit.layout.processors import BeforeInput, ConditionalProcessor, PasswordProcessor
 
 from opennovel.config import Settings
 from opennovel.llm import Provider
@@ -82,6 +82,7 @@ class FullScreenChatApp:
         self.session.show_help = self._system_view(lambda: display.help_table())
         self.session.say = lambda text: self._add_system_text(text)
         self.session.ask = self._ask
+        self.session.on_provider_change = self._refresh_header
         self._busy = False
         self._pending_ask: dict | None = None
 
@@ -100,7 +101,14 @@ class FullScreenChatApp:
             always_hide_cursor=True,
         )
         self.history_window = Window(
-            content=FormattedTextControl(self._history_text),
+            content=FormattedTextControl(
+                self._history_text,
+                # A non-focusable FormattedTextControl otherwise keeps its
+                # implicit cursor at the first line, so appended prompts can
+                # remain below the visible viewport. Put the hidden cursor at
+                # the end to make the history reliably follow new output.
+                get_cursor_position=self._history_cursor_position,
+            ),
             wrap_lines=True,
             style="class:history",
             right_margins=[ScrollbarMargin(display_arrows=False)],
@@ -115,7 +123,15 @@ class FullScreenChatApp:
             content=CenteredInputControl(
                 buffer=self.buffer,
                 focus_on_click=True,
-                input_processors=[BeforeInput("> ", style="class:composer.prompt")],
+                input_processors=[
+                    ConditionalProcessor(
+                        processor=PasswordProcessor(char="•"),
+                        filter=Condition(self._is_secret_prompt),
+                    ),
+                    # Add the prompt after password masking so `> ` remains
+                    # visible while only the secret value becomes bullets.
+                    BeforeInput("> ", style="class:composer.prompt"),
+                ],
             ),
             height=Dimension(min=1, max=5, preferred=2),
             wrap_lines=True,
@@ -261,6 +277,18 @@ class FullScreenChatApp:
     def _history_text(self):
         return ANSI(self.view.ansi_text)
 
+    def _history_cursor_position(self) -> Point:
+        """Place the history's hidden cursor after its final rendered line."""
+        return Point(x=0, y=self.view.ansi_text.count("\n"))
+
+    def _is_secret_prompt(self) -> bool:
+        return bool(self._pending_ask and self._pending_ask.get("secret"))
+
+    def _refresh_header(self) -> None:
+        """Called after the provider/model changes; repaint the status bar."""
+        self.model = self.session.provider.model
+        self._invalidate()
+
     def _system_view(self, make):
         def show():
             self._add_system_renderable(make())
@@ -294,12 +322,16 @@ class FullScreenChatApp:
         self.history_window.vertical_scroll = lines
         self.app.invalidate()
 
-    def _ask(self, prompt: str) -> str:
+    def _ask(self, prompt: str, *, secret: bool = False) -> str:
         """Full-screen ask: show the question in chat, wait for an answer."""
         from rich.text import Text
 
         event = threading.Event()
-        holder = {"event": event, "value": ""}
+        holder = {
+            "event": event,
+            "value": "",
+            "secret": secret,
+        }
         self._pending_ask = holder
         question = Text()
         question.append("- ", style="bold #7aa2f7")
@@ -316,16 +348,19 @@ class FullScreenChatApp:
         if self._busy and self._pending_ask is None:
             return
         text = buffer.text.strip()
-        if not text:
-            return
-        buffer.text = ""
         if self._pending_ask is not None:
+            holder = self._pending_ask
+            buffer.text = ""
             if text == "/help":
                 self.view.add_system(display.help_table())
                 self._invalidate()
                 return
-            holder = self._pending_ask
-            self.view.add_user(text)
+            if holder.get("secret"):
+                self.view.add_user("••••••••")
+            elif text:
+                self.view.add_user(text)
+            else:
+                self.view.add_user("（留空）")
             if text == "/exit":
                 holder["value"] = ""
                 holder["event"].set()
@@ -334,8 +369,15 @@ class FullScreenChatApp:
                 return
             self._pending_ask = None
             holder["value"] = text
+            # Repaint the submitted answer immediately. The worker will add
+            # the next prompt after it wakes, but it must not be responsible
+            # for making this state transition visible.
+            self._invalidate()
             holder["event"].set()
             return
+        if not text:
+            return
+        buffer.text = ""
         self.view.add_user(text)
         self._invalidate()
         self._run(text)

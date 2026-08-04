@@ -9,8 +9,13 @@ from opennovel.llm.provider import (
     LLMError,
     OpenAICompatibleProvider,
     Provider,
+    UnconfiguredProvider,
 )
-from opennovel.llm.registry import ProviderConfigError, provider_from_env
+from opennovel.llm.registry import (
+    ProviderConfigError,
+    build_provider_from_profile,
+    provider_from_env,
+)
 from opennovel.llm.types import ChatMessage, CompletionRequest, CompletionResponse
 
 __all__ = [
@@ -22,5 +27,7 @@ __all__ = [
     "OpenAICompatibleProvider",
     "Provider",
     "ProviderConfigError",
+    "UnconfiguredProvider",
+    "build_provider_from_profile",
     "provider_from_env",
 ]

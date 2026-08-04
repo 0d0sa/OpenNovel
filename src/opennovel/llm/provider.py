@@ -85,6 +85,16 @@ class Provider(ABC):
             ) from exc
 
 
+class UnconfiguredProvider(Provider):
+    """Placeholder used by the interactive UI before an LLM is configured."""
+
+    def __init__(self):
+        super().__init__(model="")
+
+    def complete(self, request: CompletionRequest) -> CompletionResponse:
+        raise LLMError("尚未配置模型，请先输入 /setting 完成配置")
+
+
 class OpenAICompatibleProvider(Provider):
     """openai SDK pointed at an OpenAI-compatible endpoint via base_url.
 

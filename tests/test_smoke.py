@@ -27,3 +27,23 @@ def test_cli_main_loads_dotenv(monkeypatch):
     assert calls == [1]
     assert entered == [1]
 
+
+def test_interactive_starts_without_provider_config(monkeypatch, tmp_path):
+    import opennovel.cli as cli
+    import opennovel.llm as llm
+    from opennovel.ui.app import FullScreenChatApp
+
+    def missing_provider():
+        raise llm.ProviderConfigError("missing")
+
+    started = []
+    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "missing.json"))
+    monkeypatch.setattr(llm, "provider_from_env", missing_provider)
+    monkeypatch.setattr(
+        FullScreenChatApp,
+        "run",
+        lambda self: started.append(self.session.provider) or 0,
+    )
+
+    assert cli._cmd_interactive() == 0
+    assert isinstance(started[0], llm.UnconfiguredProvider)

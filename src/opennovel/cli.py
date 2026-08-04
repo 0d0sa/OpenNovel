@@ -39,13 +39,14 @@ def main() -> int:
 
 def _cmd_interactive() -> int:
     from opennovel.config import load_settings
-    from opennovel.llm import ProviderConfigError, provider_from_env
+    from opennovel.llm import ProviderConfigError, UnconfiguredProvider, provider_from_env
 
     try:
         provider = provider_from_env()
-    except ProviderConfigError as exc:
-        print(f"配置错误：{exc}", file=sys.stderr)
-        return 1
+    except ProviderConfigError:
+        # Interactive mode must remain available on first launch so the user
+        # can configure a provider from `/setting` inside the UI.
+        provider = UnconfiguredProvider()
     settings = load_settings()
     try:
         from opennovel.ui.app import FullScreenChatApp

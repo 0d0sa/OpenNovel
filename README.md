@@ -40,10 +40,28 @@ Enter 提交，Alt+Enter 换行，输入 `/` 显示命令补全，PageUp/PageDow
 | `/style` | 查看当前风格锚点 |
 | `/checks` | 查看各章风格与剧情检查报告 |
 | `/rewrite N` | 手动重写第 N 章 |
+| `/setting` | 配置 LLM：无参数进向导；或 `--name --base-url --api-key --model`；`--list` 查看；`--remove NAME` 删除 |
+| `/model` | 切换已配置的模型（名称或序号） |
 | `/help` `/exit` | 帮助 / 退出 |
 
 自由输入（自然语言）示例：`帮我开一本新书叫《雾中城》`、`把第二章重写得更紧张`、
 `现在写到哪了`、`陈默后来叛变了`（=追加剧情）。
+
+### 模型配置
+
+`/setting` 与 `/model` 管理**命名模型配置**（独立配置文件 `~/.config/opennovel/settings.json`，
+原子写入、权限 0600、密钥掩码显示；可用 `OPENNOVEL_CONFIG_FILE` 覆盖路径）：
+
+```bash
+/setting --name deepseek --base-url https://api.deepseek.com/v1 --api-key sk-xxx --model deepseek-chat
+/setting --list          # 查看所有配置（密钥掩码）
+/model qwen              # 按名称切换
+/model 2                 # 或按序号切换
+```
+
+配置文件存在时其 active 配置**优先于 .env 环境变量**（含启动时）；会话内切换即时生效并持久化。
+首次启动即使尚未配置 API key/model 也会进入交互界面，输入 `/setting` 按提示配置；
+API key 输入过程及聊天记录均会隐藏。向导中的 base URL 可直接回车留空（使用 OpenAI 官方地址）。
 
 ### 批量模式
 
@@ -60,7 +78,7 @@ rpm 配额低的服务商请设置 `OPENNOVEL_LLM_INTERVAL`。
 ## LLM 配置 / LLM config
 
 Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千问 / 智谱 GLM / Moonshot 等），
-全部通过环境变量配置（缺 API key 或 model 时命令行会报清晰错误）。
+可通过交互界面的 `/setting` 配置，也可使用环境变量；批量写作模式缺 API key 或 model 时会报清晰错误。
 参考 `.env.example`：`cp .env.example .env` 后按服务商填写，CLI 启动时自动加载（python-dotenv）。
 
 主要配置项（前缀 `OPENNOVEL_`）：
@@ -79,6 +97,7 @@ Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千�
 | `OPENNOVEL_OUTPUT_DIR` | novels | 成书输出目录 |
 | `OPENNOVEL_STYLE_CHECK` | on | 章节级风格一致性检查开关 |
 | `OPENNOVEL_PLOT_CHECK` | on | 章节级剧情一致性检查开关 |
+| `OPENNOVEL_CONFIG_FILE` | - | 用户配置文件路径（默认 ~/.config/opennovel/settings.json） |
 
 ## 目录结构 / Structure
 
@@ -107,6 +126,7 @@ src/opennovel/
     repl.py           控制台 REPL（非 TTY 回退）：/命令 + 意图路由分发
     display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
     theme.py          共享终端视觉规范：配色 + prompt_toolkit 样式
+  settings_store.py   用户配置：命名模型配置的读写（原子写/0600/掩码）
 tests/              冒烟测试 + 数据模型测试
 ```
 

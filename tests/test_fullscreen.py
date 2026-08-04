@@ -128,6 +128,48 @@ def test_fullscreen_ask_flow(tmp_path):
     assert buffer.text == ""
 
 
+def test_fullscreen_ask_accepts_empty_answer(tmp_path):
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    holder = {
+        "event": __import__("threading").Event(),
+        "value": "not-set",
+        "secret": False,
+    }
+    app._pending_ask = holder
+    app._busy = True
+
+    buffer = Buffer()
+    buffer.text = ""
+    app._on_accept(buffer)
+    assert holder["event"].is_set()
+    assert holder["value"] == ""
+    assert app._pending_ask is None
+
+
+def test_fullscreen_secret_answer_is_masked(tmp_path):
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    holder = {
+        "event": __import__("threading").Event(),
+        "value": "",
+        "secret": True,
+    }
+    app._pending_ask = holder
+    app._busy = True
+
+    buffer = Buffer()
+    buffer.text = "sk-secret-value"
+    app._on_accept(buffer)
+    assert holder["value"] == "sk-secret-value"
+    assert "sk-secret-value" not in app.view.ansi_text
+    assert "••••••••" in app.view.ansi_text
+
+
 def test_fullscreen_busy_allows_only_pending_answer(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
@@ -139,6 +181,15 @@ def test_fullscreen_busy_allows_only_pending_answer(tmp_path):
     app._pending_ask = {"event": __import__("threading").Event(), "value": ""}
     assert not app.buffer.read_only()
     assert app._state_label()[1] == "等待回答"
+
+
+def test_fullscreen_history_cursor_tracks_latest_output(tmp_path):
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app.view.add_system(Text("第一行\n第二行\n第三行"))
+    assert app._history_cursor_position().y == app.view.ansi_text.count("\n")
 
 
 def test_fullscreen_header_shows_model(tmp_path):
