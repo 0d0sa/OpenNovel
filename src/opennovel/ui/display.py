@@ -17,7 +17,7 @@ from opennovel.memory import StyleProfile
 from opennovel.models import Novel
 from opennovel.ui.theme import BRAND, ERROR, MUTED, SUBTLE, TEXT
 
-BANNER_TEXT = "OpenNovel — 小说写作智能体"
+BANNER_TEXT = "OpenNovel — 写你自己的故事"
 
 
 def banner_text() -> Text:
