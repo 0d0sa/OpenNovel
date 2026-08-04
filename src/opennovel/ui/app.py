@@ -18,7 +18,13 @@ from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import Float, FloatContainer, HSplit, Window
+from prompt_toolkit.layout.containers import (
+    DynamicContainer,
+    Float,
+    FloatContainer,
+    HSplit,
+    Window,
+)
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl, Point, UIContent
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
@@ -85,6 +91,8 @@ class FullScreenChatApp:
         self.session.on_provider_change = self._refresh_header
         self._busy = False
         self._pending_ask: dict | None = None
+        self._settings_open = False
+        self._settings_error = ""
 
         self.buffer = Buffer(
             multiline=True,
@@ -153,7 +161,7 @@ class FullScreenChatApp:
             ],
             style="class:root",
         )
-        self.root = FloatContainer(
+        self.chat_root = FloatContainer(
             content=self.body,
             floats=[
                 Float(
@@ -163,27 +171,36 @@ class FullScreenChatApp:
                 )
             ],
         )
+        self._build_settings_screen()
+        self.root = DynamicContainer(
+            lambda: self.settings_root if self._settings_open else self.chat_root
+        )
         self.layout = Layout(
             self.root,
             focused_element=self.input_window,
         )
 
         kb = KeyBindings()
+        in_chat = Condition(lambda: not self._settings_open)
+        in_settings = Condition(lambda: self._settings_open)
 
-        @kb.add("enter", eager=True)
-        @kb.add("c-j", eager=True)
+        @kb.add("enter", eager=True, filter=in_chat)
+        @kb.add("c-j", eager=True, filter=in_chat)
         def _submit(event):
             self.buffer.validate_and_handle()
 
-        @kb.add("escape", "enter", filter=True)
+        @kb.add("escape", "enter", filter=in_chat)
         def _newline(event):
             event.current_buffer.insert_text("\n")
 
         @kb.add("c-c", eager=True)
         def _interrupt(event):
-            event.app.exit(exception=KeyboardInterrupt())
+            if self._settings_open:
+                self._close_settings_screen()
+            else:
+                event.app.exit(exception=KeyboardInterrupt())
 
-        @kb.add("pageup", eager=True)
+        @kb.add("pageup", eager=True, filter=in_chat)
         def _page_up(event):
             amount = (
                 max(3, self.history_window.render_info.window_height // 2)
@@ -193,7 +210,7 @@ class FullScreenChatApp:
             self.history_window.vertical_scroll = max(0, self.history_window.vertical_scroll - amount)
             event.app.invalidate()
 
-        @kb.add("pagedown", eager=True)
+        @kb.add("pagedown", eager=True, filter=in_chat)
         def _page_down(event):
             amount = (
                 max(3, self.history_window.render_info.window_height // 2)
@@ -203,6 +220,30 @@ class FullScreenChatApp:
             self.history_window.vertical_scroll += amount
             event.app.invalidate()
 
+        @kb.add("tab", eager=True, filter=in_settings)
+        def _settings_next(event):
+            self._focus_settings_field(event, 1)
+
+        @kb.add("s-tab", eager=True, filter=in_settings)
+        def _settings_previous(event):
+            self._focus_settings_field(event, -1)
+
+        @kb.add("enter", eager=True, filter=in_settings)
+        @kb.add("c-j", eager=True, filter=in_settings)
+        def _settings_enter(event):
+            if event.current_buffer is self.setting_model_buffer:
+                self._save_settings_form()
+            else:
+                self._focus_settings_field(event, 1)
+
+        @kb.add("c-s", eager=True, filter=in_settings)
+        def _settings_save(event):
+            self._save_settings_form()
+
+        @kb.add("escape", eager=True, filter=in_settings)
+        def _settings_cancel(event):
+            self._close_settings_screen()
+
         self.app = Application(
             layout=self.layout,
             key_bindings=kb,
@@ -210,6 +251,258 @@ class FullScreenChatApp:
             full_screen=True,
             mouse_support=False,
             output=output,
+        )
+
+    # --- settings screen ---
+
+    def _build_settings_screen(self) -> None:
+        """Build the dedicated `/setting` form shown in place of chat."""
+        self.setting_name_buffer = Buffer(multiline=False)
+        self.setting_base_url_buffer = Buffer(multiline=False)
+        self.setting_api_key_buffer = Buffer(multiline=False)
+        self.setting_model_buffer = Buffer(multiline=False)
+        self._settings_buffers = [
+            self.setting_name_buffer,
+            self.setting_base_url_buffer,
+            self.setting_api_key_buffer,
+            self.setting_model_buffer,
+        ]
+
+        fields = [
+            self._settings_field(
+                "配置名 / Profile name",
+                self.setting_name_buffer,
+                "例如 deepseek、qwen、openai",
+            ),
+            self._settings_field(
+                "服务地址 / Base URL",
+                self.setting_base_url_buffer,
+                "留空使用 OpenAI 官方地址",
+            ),
+            self._settings_field(
+                "API key",
+                self.setting_api_key_buffer,
+                "编辑已有配置时留空可保留原密钥",
+                secret=True,
+            ),
+            self._settings_field(
+                "模型 / Model",
+                self.setting_model_buffer,
+                "例如 deepseek-chat、qwen-plus、gpt-5",
+            ),
+        ]
+        self.settings_root = HSplit(
+            [
+                Window(
+                    content=FormattedTextControl(self._settings_header_fragments),
+                    height=2,
+                    style="class:settings.header",
+                    always_hide_cursor=True,
+                ),
+                Window(height=1),
+                Window(
+                    content=FormattedTextControl(self._settings_intro_fragments),
+                    height=4,
+                    always_hide_cursor=True,
+                ),
+                Window(
+                    content=FormattedTextControl(self._settings_profiles_fragments),
+                    height=Dimension(min=2, max=5, preferred=3),
+                    wrap_lines=True,
+                    always_hide_cursor=True,
+                ),
+                *fields,
+                Window(
+                    content=FormattedTextControl(self._settings_error_fragments),
+                    height=1,
+                    always_hide_cursor=True,
+                ),
+                Window(height=1),
+                Window(
+                    content=FormattedTextControl(self._settings_footer_fragments),
+                    height=1,
+                    style="class:settings.footer",
+                    always_hide_cursor=True,
+                ),
+            ],
+            style="class:settings.root",
+        )
+
+    def _settings_field(
+        self, label: str, buffer: Buffer, hint: str, *, secret: bool = False
+    ) -> HSplit:
+        processors = []
+        if secret:
+            processors.append(PasswordProcessor(char="•"))
+        processors.append(BeforeInput("  › ", style="class:settings.prompt"))
+        return HSplit(
+            [
+                Window(
+                    content=FormattedTextControl(
+                        [
+                            ("class:settings.label", f"  {label}"),
+                            ("class:settings.hint", f"   {hint}"),
+                        ]
+                    ),
+                    height=1,
+                    always_hide_cursor=True,
+                ),
+                Window(
+                    content=BufferControl(
+                        buffer=buffer,
+                        focus_on_click=True,
+                        input_processors=processors,
+                    ),
+                    height=1,
+                    style="class:settings.input",
+                ),
+                Window(height=1),
+            ]
+        )
+
+    def _settings_header_fragments(self):
+        return FormattedText(
+            [
+                ("class:settings.brand", "  OpenNovel"),
+                ("class:settings.meta", "  /  设置"),
+                ("", "\n"),
+                ("class:settings.meta", "  模型配置  ·  "),
+                (
+                    "class:settings.active",
+                    self.model or "尚未配置模型",
+                ),
+            ]
+        )
+
+    @staticmethod
+    def _settings_intro_fragments():
+        return FormattedText(
+            [
+                ("class:settings.title", "  配置模型\n"),
+                (
+                    "class:settings.hint",
+                    "  添加或更新 OpenAI 兼容服务；保存后立即在当前会话生效。\n\n",
+                ),
+                ("class:settings.label", "  已保存的配置"),
+            ]
+        )
+
+    def _settings_profiles_fragments(self):
+        user_settings = self.session.ensure_user_settings()
+        if user_settings is None or not user_settings.profiles:
+            return FormattedText(
+                [("class:settings.hint", "  暂无配置，这是你的第一个模型。")]
+            )
+        fragments = []
+        for name, profile in user_settings.profiles.items():
+            marker = "●" if name == user_settings.active else "○"
+            style = (
+                "class:settings.active"
+                if name == user_settings.active
+                else "class:settings.hint"
+            )
+            fragments.append((style, f"  {marker} {name}  ·  {profile.model}\n"))
+        return FormattedText(fragments)
+
+    def _settings_error_fragments(self):
+        if not self._settings_error:
+            return FormattedText([])
+        return FormattedText(
+            [("class:settings.error", f"  ! {self._settings_error}")]
+        )
+
+    @staticmethod
+    def _settings_footer_fragments():
+        return FormattedText(
+            [
+                ("class:settings.footer.key", "  tab / shift+tab"),
+                ("class:settings.footer", " 切换   "),
+                ("class:settings.footer.key", "enter"),
+                ("class:settings.footer", " 下一项/保存   "),
+                ("class:settings.footer.key", "ctrl+s"),
+                ("class:settings.footer", " 保存   "),
+                ("class:settings.footer.key", "esc"),
+                ("class:settings.footer", " 返回"),
+            ]
+        )
+
+    def _open_settings_screen(self) -> None:
+        """Populate and display the standalone model settings page."""
+        self._settings_error = ""
+        user_settings = self.session.ensure_user_settings()
+        profile = user_settings.active_profile() if user_settings else None
+        values = [
+            profile.name if profile else "",
+            (profile.base_url or "") if profile else "",
+            "",
+            profile.model if profile else "",
+        ]
+        for buffer, value in zip(self._settings_buffers, values):
+            buffer.text = value
+            buffer.cursor_position = len(value)
+        self._settings_open = True
+        self.app.layout.focus(self.setting_name_buffer)
+        self.app.invalidate()
+
+    def _close_settings_screen(self) -> None:
+        self._settings_open = False
+        self._settings_error = ""
+        self.setting_api_key_buffer.text = ""
+        self.app.layout.focus(self.input_window)
+        self.app.invalidate()
+
+    def _focus_settings_field(self, event, offset: int) -> None:
+        try:
+            index = self._settings_buffers.index(event.current_buffer)
+        except ValueError:
+            index = 0
+        target = self._settings_buffers[(index + offset) % len(self._settings_buffers)]
+        event.app.layout.focus(target)
+
+    def _save_settings_form(self) -> None:
+        from opennovel.settings_store import ProfileConfig
+
+        name = self.setting_name_buffer.text.strip()
+        base_url = self.setting_base_url_buffer.text.strip()
+        api_key = self.setting_api_key_buffer.text.strip()
+        model = self.setting_model_buffer.text.strip()
+        if not name:
+            self._settings_error = "配置名不能为空"
+            self.app.layout.focus(self.setting_name_buffer)
+            self.app.invalidate()
+            return
+        if not model:
+            self._settings_error = "模型名不能为空"
+            self.app.layout.focus(self.setting_model_buffer)
+            self.app.invalidate()
+            return
+
+        user_settings = self.session.ensure_user_settings()
+        existing = user_settings.profiles.get(name) if user_settings else None
+        if not api_key and existing is not None:
+            api_key = existing.api_key
+        if not api_key:
+            self._settings_error = "API key 不能为空"
+            self.app.layout.focus(self.setting_api_key_buffer)
+            self.app.invalidate()
+            return
+
+        try:
+            profile = ProfileConfig(
+                name=name,
+                base_url=base_url or None,
+                api_key=api_key,
+                model=model,
+            )
+            self.session.save_profile(profile)
+        except Exception as exc:
+            self._settings_error = f"保存失败：{exc}"
+            self.app.invalidate()
+            return
+
+        self._close_settings_screen()
+        self._add_system_text(
+            f"[green]已保存并切换到 {profile.name}（{profile.model}）[/green]"
         )
 
     # --- history / input plumbing ---
@@ -379,6 +672,9 @@ class FullScreenChatApp:
             return
         buffer.text = ""
         self.view.add_user(text)
+        if text.lower() == "/setting":
+            self._open_settings_screen()
+            return
         self._invalidate()
         self._run(text)
 

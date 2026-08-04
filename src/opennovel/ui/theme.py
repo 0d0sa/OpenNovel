@@ -38,5 +38,18 @@ UI_STYLE = Style.from_dict(
         "completion-menu.meta.completion.current": f"bg:#30363d {TEXT}",
         "scrollbar.background": "bg:#161b22",
         "scrollbar.button": "bg:#484f58",
+        "settings.root": f"bg:#0d1117 {TEXT}",
+        "settings.header": "bg:#161b22",
+        "settings.brand": f"bold {BRAND}",
+        "settings.meta": MUTED,
+        "settings.title": f"bold {TEXT}",
+        "settings.label": f"bold {TEXT}",
+        "settings.hint": MUTED,
+        "settings.active": f"bold {SUCCESS}",
+        "settings.input": f"bg:#161b22 {TEXT}",
+        "settings.prompt": f"bold {BRAND}",
+        "settings.error": f"bold {ERROR}",
+        "settings.footer": f"bg:#0d1117 {MUTED}",
+        "settings.footer.key": f"bold {TEXT}",
     }
 )

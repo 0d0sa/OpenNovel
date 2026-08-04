@@ -40,7 +40,7 @@ Enter 提交，Alt+Enter 换行，输入 `/` 显示命令补全，PageUp/PageDow
 | `/style` | 查看当前风格锚点 |
 | `/checks` | 查看各章风格与剧情检查报告 |
 | `/rewrite N` | 手动重写第 N 章 |
-| `/setting` | 配置 LLM：无参数进向导；或 `--name --base-url --api-key --model`；`--list` 查看；`--remove NAME` 删除 |
+| `/setting` | 打开独立模型配置页；也支持参数式设置、`--list` 和 `--remove NAME` |
 | `/model` | 切换已配置的模型（名称或序号） |
 | `/help` `/exit` | 帮助 / 退出 |
 
@@ -62,6 +62,9 @@ Enter 提交，Alt+Enter 换行，输入 `/` 显示命令补全，PageUp/PageDow
 配置文件存在时其 active 配置**优先于 .env 环境变量**（含启动时）；会话内切换即时生效并持久化。
 首次启动即使尚未配置 API key/model 也会进入交互界面，输入 `/setting` 按提示配置；
 API key 输入过程及聊天记录均会隐藏。向导中的 base URL 可直接回车留空（使用 OpenAI 官方地址）。
+
+全屏模式下，裸 `/setting` 会切换到独立配置页。使用 Tab / Shift+Tab 切换字段，Enter 前进
+（在模型字段保存），Ctrl+S 随时保存，Esc 返回聊天。控制台回退模式继续使用逐项向导。
 
 ### 批量模式
 

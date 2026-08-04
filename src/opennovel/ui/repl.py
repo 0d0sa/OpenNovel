@@ -55,6 +55,17 @@ class Session:
         if self.on_provider_change is not None:
             self.on_provider_change()
 
+    def save_profile(self, profile) -> None:
+        """Persist a named profile, activate it, and rebuild the provider."""
+        from opennovel.settings_store import UserSettings, save_user_settings
+
+        user_settings = self.ensure_user_settings() or UserSettings()
+        user_settings.profiles[profile.name] = profile
+        user_settings.active = profile.name
+        save_user_settings(user_settings)
+        self.user_settings = user_settings
+        self.switch_provider(profile)
+
     def ask(self, prompt: str, *, secret: bool = False) -> str:
         """Read a line, dispatching `/` commands instead of treating them as answers."""
         while True:
@@ -257,14 +268,7 @@ def _cmd_setting(session: Session, args: list[str]) -> None:
 
 
 def _save_and_activate(session: Session, profile) -> None:
-    from opennovel.settings_store import UserSettings, save_user_settings
-
-    us = session.ensure_user_settings() or UserSettings()
-    us.profiles[profile.name] = profile
-    us.active = profile.name
-    save_user_settings(us)
-    session.user_settings = us
-    session.switch_provider(profile)
+    session.save_profile(profile)
     session.say(f"[green]已保存并切换到 {profile.name}（{profile.model}）[/green]")
 
 
