@@ -6,9 +6,12 @@ Enter submits, Shift+Enter inserts a newline (Claude Code style).
 from __future__ import annotations
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout.menus import CompletionsMenu, CompletionsMenuControl
 
 from opennovel.ui.theme import UI_STYLE
 
@@ -41,15 +44,52 @@ class CommandCompleter(Completer):
                 yield Completion(f"/{name}", start_position=-len(word), display_meta=desc)
 
 
+class FirstSelectedCompletionsMenuControl(CompletionsMenuControl):
+    """Render the first match as selected without inserting it into the buffer."""
+
+    def create_content(self, width: int, height: int):
+        state = get_app().current_buffer.complete_state
+        if state and state.completions and state.complete_index is None:
+            # CompletionsMenuControl only highlights complete_index. Temporarily
+            # expose index 0 while it builds immutable UIContent; do not call
+            # Buffer.go_to_completion(), which would modify the user's input.
+            state.complete_index = 0
+            try:
+                return super().create_content(width, height)
+            finally:
+                state.complete_index = None
+        return super().create_content(width, height)
+
+
+class FirstSelectedCompletionsMenu(CompletionsMenu):
+    """Completion menu whose passive/default selection is the first match."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.content.content = FirstSelectedCompletionsMenuControl()
+
+
+def apply_selected_completion(buffer: Buffer) -> bool:
+    """Insert the highlighted completion, defaulting to the first match."""
+    state = buffer.complete_state
+    if state is None or not state.completions:
+        return False
+    completion = state.current_completion or state.completions[0]
+    buffer.apply_completion(completion)
+    return True
+
+
 def _bindings() -> KeyBindings:
     kb = KeyBindings()
 
     @kb.add("enter", filter=True, eager=True)
     def _submit(event):
+        apply_selected_completion(event.current_buffer)
         event.current_buffer.validate_and_handle()
 
     @kb.add("c-j", filter=True, eager=True)
     def _submit_lf(event):
+        apply_selected_completion(event.current_buffer)
         event.current_buffer.validate_and_handle()
 
     @kb.add("escape", "enter", filter=True)

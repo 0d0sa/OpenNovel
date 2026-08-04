@@ -333,9 +333,79 @@ def test_fullscreen_header_shows_model(tmp_path):
     assert "OpenNovel" in app._header_text("m")
     header = app._header_fragments()
     assert "deepseek-v4-flash" in "".join(fragment[1] for fragment in header)
-    # body layout: header / history / composer rule / input / footer
+    # body layout: header / history / completions / composer rule / input / footer
     names = [type(c).__name__ for c in app.body.children]
-    assert names == ["Window", "Window", "Window", "Window", "Window"]
+    assert names == [
+        "Window",
+        "Window",
+        "FirstSelectedCompletionsMenu",
+        "Window",
+        "Window",
+        "Window",
+    ]
+    assert app.body.children[2] is app.completions_menu
+
+
+def test_completion_menu_selects_first_without_filling_input(tmp_path):
+    from prompt_toolkit.application.current import set_app
+    from prompt_toolkit.buffer import CompletionState
+    from prompt_toolkit.completion import CompleteEvent
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app.buffer.text = "/"
+    app.buffer.cursor_position = len(app.buffer.text)
+    completions = list(
+        app.buffer.completer.get_completions(
+            app.buffer.document, CompleteEvent(text_inserted=True)
+        )
+    )
+    app.buffer.complete_state = CompletionState(
+        original_document=app.buffer.document,
+        completions=completions,
+    )
+
+    with set_app(app.app):
+        control = app.completions_menu.content.content
+        content = control.create_content(width=80, height=8)
+        first_line_styles = [fragment[0] for fragment in content.get_line(0)]
+
+    assert app.buffer.complete_state.complete_index is None
+    assert app.buffer.text == "/"
+    assert any("current" in style for style in first_line_styles)
+
+
+def test_enter_applies_default_first_completion_and_executes(tmp_path, monkeypatch):
+    from prompt_toolkit.buffer import CompletionState
+    from prompt_toolkit.completion import CompleteEvent
+    from opennovel.config import Settings
+    from opennovel.ui.app import FullScreenChatApp
+    from opennovel.ui.input import apply_selected_completion
+
+    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
+    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app.buffer.text = "/sett"
+    app.buffer.cursor_position = len(app.buffer.text)
+    completions = list(
+        app.buffer.completer.get_completions(
+            app.buffer.document, CompleteEvent(text_inserted=True)
+        )
+    )
+    app.buffer.complete_state = CompletionState(
+        original_document=app.buffer.document,
+        completions=completions,
+    )
+    # The real Application has a running event loop for complete-while-typing;
+    # this direct unit test applies a prepared state synchronously.
+    app.buffer.completer = None
+
+    assert apply_selected_completion(app.buffer)
+    assert app.buffer.text == "/setting"
+    app.buffer.validate_and_handle()
+
+    assert app._settings_open
+    assert app.view.messages[-1] == ("user", "/setting")
 
 
 def test_fullscreen_exit_during_ask(tmp_path):

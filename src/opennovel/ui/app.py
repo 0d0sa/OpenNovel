@@ -20,22 +20,23 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
-    Float,
-    FloatContainer,
     HSplit,
     Window,
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl, Point, UIContent
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
-from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.layout.processors import BeforeInput, ConditionalProcessor, PasswordProcessor
 
 from opennovel.config import Settings
 from opennovel.llm import Provider
 from opennovel.ui import display
 from opennovel.ui.chat import ChatView
-from opennovel.ui.input import CommandCompleter
+from opennovel.ui.input import (
+    CommandCompleter,
+    FirstSelectedCompletionsMenu,
+    apply_selected_completion,
+)
 from opennovel.ui.repl import Session, handle_command
 from opennovel.ui.theme import UI_STYLE
 
@@ -151,26 +152,24 @@ class FullScreenChatApp:
             style="class:footer",
             always_hide_cursor=True,
         )
+        # Keep completion matches in normal layout flow. A cursor-anchored
+        # Float is automatically flipped by prompt_toolkit when the composer
+        # is near the bottom, which can place the menu at the top of the app.
+        self.completions_menu = FirstSelectedCompletionsMenu(
+            max_height=8, scroll_offset=1
+        )
         self.body = HSplit(
             [
                 self.header_window,
                 self.history_window,
+                self.completions_menu,
                 self.top_line,
                 self.input_window,
                 self.footer_window,
             ],
             style="class:root",
         )
-        self.chat_root = FloatContainer(
-            content=self.body,
-            floats=[
-                Float(
-                    xcursor=True,
-                    ycursor=True,
-                    content=CompletionsMenu(max_height=8, scroll_offset=1),
-                )
-            ],
-        )
+        self.chat_root = self.body
         self._build_settings_screen()
         self.root = DynamicContainer(
             lambda: self.settings_root if self._settings_open else self.chat_root
@@ -187,6 +186,7 @@ class FullScreenChatApp:
         @kb.add("enter", eager=True, filter=in_chat)
         @kb.add("c-j", eager=True, filter=in_chat)
         def _submit(event):
+            apply_selected_completion(self.buffer)
             self.buffer.validate_and_handle()
 
         @kb.add("escape", "enter", filter=in_chat)
