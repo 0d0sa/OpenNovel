@@ -43,7 +43,25 @@ Enter 提交，Alt+Enter 换行，输入 `/` 会在输入栏正上方显示命�
 | `/rewrite N` | 手动重写第 N 章 |
 | `/setting` | 打开独立配置页（模型 + 生成参数）；也支持参数式设置、`--list` 和 `--remove NAME` |
 | `/model` | 切换已配置的模型（名称或序号） |
+| `/sessions` | 当前书的会话列表（名称/消息数/时间） |
+| `/session` | 会话管理：`new` / `open` / `rename` / `delete` |
 | `/help` `/exit` | 帮助 / 退出 |
+
+### 会话（Session）
+
+一本小说可对应**多个会话**，同一本书的所有会话共享同一份小说背景知识
+（剧情 / 风格锚点 / 剧情状态 / 章节，即 novel.json）；每个会话独立保存自己的聊天记录
+（`novels/<title>/sessions/<id>.json`），重启后可恢复：
+
+```bash
+/sessions                 # 查看本书所有会话
+/session new 讨论         # 新建会话（/new 建书时自动创建首个会话）
+/session open 讨论        # 切换会话（名称或序号），自动加载共享背景与聊天记录
+/session rename 旧名 新名
+/session delete 名字
+```
+
+多会话同时写作采用写前 reload 的乐观并发（后写覆盖）。全屏顶部状态栏显示当前会话名。
 
 自由输入（自然语言）示例：`帮我开一本新书叫《雾中城》`、`把第二章重写得更紧张`、
 `现在写到哪了`、`陈默后来叛变了`（=追加剧情）。
@@ -127,6 +145,7 @@ src/opennovel/
     display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
     theme.py          共享终端视觉规范：配色 + prompt_toolkit 样式
   settings_store.py   用户配置：模型 profile + 全局生成参数（原子写/0600/掩码）
+  session_store.py    会话记录：novels/<title>/sessions/<id>.json（聊天记录/时间）
 tests/              冒烟测试 + 数据模型测试
 ```
 

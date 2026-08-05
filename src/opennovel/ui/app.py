@@ -635,13 +635,17 @@ class FullScreenChatApp:
 
     def _header_fragments(self):
         book = self.session.title or "未打开作品"
+        session_name = self.session.session_name or ""
         state_style, state_label = self._state_label()
         fragments = [
             ("class:header.brand", "  OpenNovel"),
             ("class:header.meta", "  /  "),
             ("class:header.title", "小说写作智能体"),
             ("", "\n"),
-            ("class:header.meta", f"  {book}  ·  {self.model or '未配置模型'}  ·  "),
+            (
+                "class:header.meta",
+                f"  {book}  ·  {session_name}  ·  {self.model or '未配置模型'}  ·  ",
+            ),
             (state_style, state_label),
         ]
         return FormattedText(fragments)

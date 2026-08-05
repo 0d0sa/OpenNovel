@@ -39,6 +39,44 @@ class Session:
     user_settings: object = None
     on_provider_change: object = None
     settings_path: Path | None = None
+    session_id: str = ""
+    session_name: str = ""
+    record: object = None
+
+    def ensure_session_record(self):
+        """Get-or-create the persisted session record for the current book."""
+        from opennovel.session_store import SessionRecord
+
+        if self.record is None:
+            self.record = SessionRecord(novel_title=self.title, name=self.session_name or "会话")
+            self.session_id = self.record.id
+            self.session_name = self.record.name
+        elif self.session_id:
+            self.record.id = self.session_id
+        return self.record
+
+    def persist_chat(self) -> None:
+        """Save chat history to the session file (after each command)."""
+        if not self.title:
+            return
+        record = self.ensure_session_record()
+        record.novel_title = self.title
+        record.messages = list(getattr(self.chat, "messages", []))
+        from opennovel.session_store import save_session
+
+        save_session(record, self.settings.output_dir)
+
+    def ensure_fresh_novel(self) -> None:
+        """Optimistic concurrency: reload novel.json from disk if it exists."""
+        from opennovel.models import load_novel
+        from opennovel.session_store import novel_exists
+
+        if not self.title or not novel_exists(self.title, self.settings.output_dir):
+            return
+        disk = load_novel(self.settings.output_dir / self.title / "novel.json")
+        self.novel = disk
+        if not self.plot:
+            self.plot = disk.plot
 
     def ensure_user_settings(self):
         """Load user settings file (cached); returns UserSettings or None."""
@@ -152,6 +190,7 @@ def handle_command(session: Session, line: str) -> bool:
         cmd = parts[0].lower()
         args = parts[1:]
         if cmd == "/exit":
+            session.persist_chat()
             session.exiting = True
             return False
         if cmd == "/help":
@@ -172,10 +211,15 @@ def handle_command(session: Session, line: str) -> bool:
             _cmd_setting(session, args)
         elif cmd == "/model":
             _cmd_model(session, args)
+        elif cmd == "/sessions":
+            _cmd_sessions(session)
+        elif cmd == "/session":
+            _cmd_session(session, args)
         else:
             session.say(f"[red]未知命令：{cmd}（/help 查看可用命令）[/red]")
     else:
         _route_free_text(session, line)
+    session.persist_chat()
     return True
 
 
@@ -535,6 +579,10 @@ def _cmd_new(session: Session, args: list[str]) -> None:
     session.plot = plot
     session.style_hint = style_hint
     session.novel = None
+    session.record = None
+    session.session_id = ""
+    session.session_name = ""
+    session.ensure_session_record()  # 每本书自动创建首个会话
     session.chat.add_system(session.chat.stage_panel(f"已创建：《{title}》，说 /write 或“开始写作”"))
     session.say("[dim]聊天输入可理解为自然语言指令（如“把第二章重写得更紧张”）[/dim]")
 
@@ -543,6 +591,7 @@ def _cmd_write(session: Session) -> None:
     if not session.plot:
         session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
         return
+    session.ensure_fresh_novel()  # 乐观并发：写前重载 disk 最新版
 
     def on_stage(stage: str) -> None:
         session.chat.add_system(session.chat.stage_panel(stage))
@@ -566,6 +615,7 @@ def _cmd_write(session: Session) -> None:
 
 
 def _cmd_rewrite(session: Session, args: list[str]) -> None:
+    session.ensure_fresh_novel()  # 乐观并发：重写前重载 disk 最新版
     novel = session.novel
     if novel is None:
         session.say("[yellow]还没有章节可重写[/yellow]")
@@ -607,3 +657,154 @@ def _cmd_rewrite(session: Session, args: list[str]) -> None:
     chapter.plot_report = None
     save_novel(novel, session.settings.output_dir / novel.title / "novel.json")
     session.say(f"[green]第{idx}章已重写并保存[/green]")
+
+
+# --- session management ---
+
+
+def _cmd_sessions(session: Session) -> None:
+    """List all sessions of the current book."""
+    from opennovel.session_store import list_sessions
+
+    if not session.title:
+        session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
+        return
+    records = list_sessions(session.title, session.settings.output_dir)
+    if not records:
+        session.say("[yellow]本书还没有会话（/new 会自动创建）[/yellow]")
+        return
+    lines = ["[bold]本书会话：[/bold]"]
+    for i, r in enumerate(records, 1):
+        mark = "[green]*[/green]" if r.id == session.session_id else " "
+        lines.append(
+            f"  {mark} {i}. {r.name}  {len(r.messages)} 条消息  {r.updated_at[:16]}"
+        )
+    session.say("\n".join(lines))
+
+
+def _cmd_session(session: Session, args: list[str]) -> None:
+    if not args:
+        session.say("[yellow]用法：/session new|open|rename|delete …（/sessions 查看列表）[/yellow]")
+        return
+    op, rest = args[0].lower(), args[1:]
+    if op == "new":
+        _session_new(session, rest)
+    elif op == "open":
+        _session_open(session, rest)
+    elif op == "rename":
+        _session_rename(session, rest)
+    elif op == "delete":
+        _session_delete(session, rest)
+    else:
+        session.say(f"[red]未知子命令：{op}（new/open/rename/delete）[/red]")
+
+
+def _resolve_session(session: Session, target: str):
+    """Resolve a session by name or 1-based index (from the list order)."""
+    from opennovel.session_store import list_sessions
+
+    records = list_sessions(session.title, session.settings.output_dir)
+    if target.isdigit():
+        idx = int(target)
+        if not 1 <= idx <= len(records):
+            session.say(f"[red]序号超出范围（1-{len(records)}）[/red]")
+            return None
+        return records[idx - 1]
+    for r in records:
+        if r.name == target:
+            return r
+    session.say(f"[red]未找到会话：{target}[/red]")
+    return None
+
+
+def _session_new(session: Session, rest: list[str]) -> None:
+    if not session.title:
+        session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
+        return
+    session.persist_chat()  # 先落盘当前会话
+    from opennovel.session_store import SessionRecord, list_sessions, save_session
+
+    existing = len(list_sessions(session.title, session.settings.output_dir))
+    name = rest[0] if rest else f"会话 {existing + 1}"
+    record = SessionRecord(novel_title=session.title, name=name)
+    save_session(record, session.settings.output_dir)
+    _switch_to_record(session, record)
+    session.say(f"[green]已创建并切换到会话：{name}[/green]")
+
+
+def _session_open(session: Session, rest: list[str]) -> None:
+    if not session.title:
+        session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
+        return
+    from opennovel.session_store import latest_session
+
+    if not rest:
+        record = latest_session(session.title, session.settings.output_dir)
+        if record is None:
+            session.say("[yellow]本书还没有会话，用 /session new 创建[/yellow]")
+            return
+    else:
+        record = _resolve_session(session, rest[0])
+        if record is None:
+            return
+    session.persist_chat()
+    _switch_to_record(session, record)
+    session.say(f"[green]已切换到会话：{record.name}[/green]")
+
+
+def _switch_to_record(session: Session, record) -> None:
+    """Switch the session and load the shared background knowledge (novel)."""
+    session.record = record
+    session.session_id = record.id
+    session.session_name = record.name
+    session.ensure_fresh_novel()  # 加载该书共享的 novel.json（背景知识）
+    if session.novel is not None:
+        session.plot = session.plot or session.novel.plot
+    # 恢复聊天记录
+    session.chat.reset()
+    for role, text in record.messages:
+        if role == "user":
+            session.chat.add_user(text)
+        elif role == "assistant":
+            session.chat.add_assistant(text)
+        else:
+            session.chat.add_system(text)
+    session.persist_chat()
+
+
+def _session_rename(session: Session, rest: list[str]) -> None:
+    if len(rest) < 2:
+        session.say("[yellow]用法：/session rename <旧名> <新名>[/yellow]")
+        return
+    old, new = rest[0], rest[1]
+    record = _resolve_session(session, old)
+    if record is None:
+        return
+    record.name = new
+    from opennovel.session_store import save_session
+
+    save_session(record, session.settings.output_dir)
+    if session.session_id == record.id:
+        session.session_name = new
+    session.say(f"[green]已重命名：{old} -> {new}[/green]")
+
+
+def _session_delete(session: Session, rest: list[str]) -> None:
+    if not rest:
+        session.say("[yellow]用法：/session delete <name|序号>[/yellow]")
+        return
+    record = _resolve_session(session, rest[0])
+    if record is None:
+        return
+    from opennovel.session_store import delete_session, latest_session
+
+    delete_session(session.title, record.id, session.settings.output_dir)
+    session.say(f"[green]已删除会话：{record.name}[/green]")
+    if session.session_id == record.id:
+        session.record = None
+        session.session_id = ""
+        session.session_name = ""
+        latest = latest_session(session.title, session.settings.output_dir)
+        if latest is not None:
+            _switch_to_record(session, latest)
+            session.say(f"[green]已切换到会话：{latest.name}[/green]")

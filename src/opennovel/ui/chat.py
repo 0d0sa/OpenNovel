@@ -43,6 +43,12 @@ class ChatView:
         self._texts: list[str] = []
         self._parts: list[str] = []
 
+    def reset(self) -> None:
+        """Clear all messages and rendered text (used when switching sessions)."""
+        self.messages = []
+        self._texts = []
+        self._parts = []
+
     @property
     def ansi_text(self) -> str:
         base = "".join(self._texts)
@@ -99,6 +105,11 @@ class ChatStream:
         self.console = console
         self.messages: list[tuple[str, str]] = []  # (role, text); role in user/assistant/system
         self._parts: list[str] = []
+
+    def reset(self) -> None:
+        """Clear all messages and streamed parts (used when switching sessions)."""
+        self.messages = []
+        self._parts = []
 
     def add_user(self, text: str) -> None:
         self.messages.append(("user", text))
