@@ -1,9 +1,8 @@
-"""User-level settings store for named LLM profiles.
+"""User-level settings store managed exclusively by ``/setting``.
 
-Stored at `~/.config/opennovel/settings.json` (override via
-OPENNOVEL_CONFIG_FILE): multiple named profiles (base_url / api_key / model)
-with an active one. Written atomically with 0600 permissions — the file
-contains secrets.
+Stored at ``~/.config/opennovel/settings.json``: named LLM profiles plus
+global generation/runtime settings. Written atomically with 0600 permissions
+because the file contains API keys.
 """
 
 from __future__ import annotations
@@ -25,23 +24,34 @@ class ProfileConfig(BaseModel):
     model: str = Field(description="模型名")
 
 
+class RuntimeConfig(BaseModel):
+    """Global generation/runtime settings shared by all model profiles."""
+
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="采样温度")
+    max_tokens: int = Field(default=4096, gt=0, description="单次调用 token 上限")
+    call_interval: float = Field(default=0.0, ge=0.0, description="调用间隔秒数")
+    language: str = Field(default="zh", min_length=1, description="成书语言")
+    chapter_target_chars: int = Field(default=3000, gt=0, description="每章目标字数")
+    max_chapters: int = Field(default=20, gt=0, description="最大章节数")
+    output_dir: str = Field(default="novels", min_length=1, description="成书输出目录")
+    style_check: bool = Field(default=True, description="风格一致性检查")
+    plot_check: bool = Field(default=True, description="剧情一致性检查")
+
+
 class UserSettings(BaseModel):
-    """Persisted user settings: named profiles + the active one."""
+    """Persisted settings: named profiles, active profile, and runtime knobs."""
 
     active: str = ""
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
 
     def active_profile(self) -> ProfileConfig | None:
         return self.profiles.get(self.active)
 
 
 def default_config_path() -> Path:
-    override = os.environ.get("OPENNOVEL_CONFIG_FILE")
-    if override:
-        return Path(override)
-    base = os.environ.get("XDG_CONFIG_HOME")
-    root = Path(base) if base else Path.home() / ".config"
-    return root / "opennovel" / "settings.json"
+    """Return the single location used by the ``/setting`` command."""
+    return Path.home() / ".config" / "opennovel" / "settings.json"
 
 
 def load_user_settings(path: Path | None = None) -> UserSettings | None:

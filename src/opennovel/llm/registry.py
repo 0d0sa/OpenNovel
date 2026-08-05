@@ -1,8 +1,8 @@
-"""Provider factory: build a Provider from environment configuration."""
+"""Provider factory backed by the configuration written by ``/setting``."""
 
 from __future__ import annotations
 
-from typing import Mapping
+from pathlib import Path
 
 from opennovel.config import Settings, load_settings
 from opennovel.llm.provider import OpenAICompatibleProvider, Provider
@@ -25,22 +25,17 @@ def build_provider_from_profile(profile: ProfileConfig, settings: Settings) -> P
     )
 
 
-def provider_from_env(env: Mapping[str, str] | None = None) -> Provider:
-    """Build a provider from env vars (via `Settings`).
-
-    - OPENNOVEL_LLM_API_KEY: required (falls back to OPENAI_API_KEY)
-    - OPENNOVEL_LLM_MODEL: required
-    - OPENNOVEL_LLM_BASE_URL: optional; omit to use OpenAI's official endpoint
-    - OPENNOVEL_LLM_TEMPERATURE / OPENNOVEL_LLM_MAX_TOKENS: defaults used for
-      every request unless overridden
-    """
-    settings = load_settings(env)
+def provider_from_settings(
+    settings: Settings | None = None, *, path: Path | None = None
+) -> Provider:
+    """Build a provider from the active profile configured via ``/setting``."""
+    settings = settings or load_settings(path)
     if not settings.llm_api_key:
         raise ProviderConfigError(
-            "missing API key: set OPENNOVEL_LLM_API_KEY (or OPENAI_API_KEY)"
+            "未配置模型：请在会话中用 /setting 配置 API key（或先创建配置文件）"
         )
     if not settings.llm_model:
-        raise ProviderConfigError("missing model: set OPENNOVEL_LLM_MODEL")
+        raise ProviderConfigError("未配置模型：请在会话中用 /setting 配置模型名")
     return OpenAICompatibleProvider(
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,

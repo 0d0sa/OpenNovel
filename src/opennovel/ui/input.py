@@ -22,7 +22,7 @@ COMMANDS = [
     ("style", "查看风格锚点"),
     ("checks", "查看各章检查报告"),
     ("rewrite", "手动重写某章，如 /rewrite 2"),
-    ("setting", "打开独立模型配置页"),
+    ("setting", "配置模型与生成参数"),
     ("model", "切换已配置的模型"),
     ("help", "显示帮助"),
     ("exit", "退出"),

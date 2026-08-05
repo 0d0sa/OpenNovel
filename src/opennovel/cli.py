@@ -3,10 +3,7 @@ runs the batch pipeline."""
 
 import argparse
 import sys
-from dataclasses import replace
 from pathlib import Path
-
-from dotenv import load_dotenv
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,12 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     write.add_argument("--plot", help="剧情文本")
     write.add_argument("--plot-file", help="剧情文本文件路径（与 --plot 二选一）")
     write.add_argument("--style", default="", help="可选：风格描述，如 冷峻/诙谐/诗意")
-    write.add_argument("--max-chapters", type=int, default=None, help="覆盖 OPENNOVEL_MAX_CHAPTERS")
     return parser
 
 
 def main() -> int:
-    load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
@@ -39,15 +34,15 @@ def main() -> int:
 
 def _cmd_interactive() -> int:
     from opennovel.config import load_settings
-    from opennovel.llm import ProviderConfigError, UnconfiguredProvider, provider_from_env
+    from opennovel.llm import ProviderConfigError, UnconfiguredProvider, provider_from_settings
 
+    settings = load_settings()
     try:
-        provider = provider_from_env()
+        provider = provider_from_settings(settings)
     except ProviderConfigError:
         # Interactive mode must remain available on first launch so the user
         # can configure a provider from `/setting` inside the UI.
         provider = UnconfiguredProvider()
-    settings = load_settings()
     try:
         from opennovel.ui.app import FullScreenChatApp
 
@@ -61,7 +56,7 @@ def _cmd_interactive() -> int:
 def _cmd_write(args: argparse.Namespace) -> int:
     from opennovel.agent import write_novel
     from opennovel.config import load_settings
-    from opennovel.llm import ProviderConfigError, provider_from_env
+    from opennovel.llm import ProviderConfigError, provider_from_settings
 
     plot = ""
     if args.plot_file:
@@ -76,15 +71,12 @@ def _cmd_write(args: argparse.Namespace) -> int:
         print("缺少剧情：请用 --plot 或 --plot-file 提供剧情", file=sys.stderr)
         return 1
 
+    settings = load_settings()
     try:
-        provider = provider_from_env()
+        provider = provider_from_settings(settings)
     except ProviderConfigError as exc:
         print(f"配置错误：{exc}", file=sys.stderr)
         return 1
-
-    settings = load_settings()
-    if args.max_chapters is not None:
-        settings = replace(settings, max_chapters=args.max_chapters)
 
     novel = write_novel(provider, settings, args.title, plot, args.style, on_progress=print)
 

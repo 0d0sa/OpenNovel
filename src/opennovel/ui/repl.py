@@ -38,13 +38,14 @@ class Session:
     exiting: bool = False
     user_settings: object = None
     on_provider_change: object = None
+    settings_path: Path | None = None
 
     def ensure_user_settings(self):
         """Load user settings file (cached); returns UserSettings or None."""
         if self.user_settings is None:
             from opennovel.settings_store import load_user_settings
 
-            self.user_settings = load_user_settings()
+            self.user_settings = load_user_settings(self.settings_path)
         return self.user_settings
 
     def switch_provider(self, profile) -> None:
@@ -55,16 +56,34 @@ class Session:
         if self.on_provider_change is not None:
             self.on_provider_change()
 
-    def save_profile(self, profile) -> None:
-        """Persist a named profile, activate it, and rebuild the provider."""
+    def save_profile(self, profile, runtime=None) -> None:
+        """Persist a profile and runtime settings, then apply them live."""
+        from opennovel.config import settings_from_user_settings
         from opennovel.settings_store import UserSettings, save_user_settings
 
         user_settings = self.ensure_user_settings() or UserSettings()
         user_settings.profiles[profile.name] = profile
         user_settings.active = profile.name
-        save_user_settings(user_settings)
+        if runtime is not None:
+            user_settings.runtime = runtime
+        save_user_settings(user_settings, self.settings_path)
         self.user_settings = user_settings
+        self.settings = settings_from_user_settings(user_settings)
         self.switch_provider(profile)
+
+    def save_runtime(self, runtime) -> None:
+        """Persist global runtime settings and apply them to the session."""
+        from opennovel.config import settings_from_user_settings
+        from opennovel.settings_store import UserSettings, save_user_settings
+
+        user_settings = self.ensure_user_settings() or UserSettings()
+        user_settings.runtime = runtime
+        save_user_settings(user_settings, self.settings_path)
+        self.user_settings = user_settings
+        self.settings = settings_from_user_settings(user_settings)
+        profile = user_settings.active_profile()
+        if profile is not None:
+            self.switch_provider(profile)
 
     def ask(self, prompt: str, *, secret: bool = False) -> str:
         """Read a line, dispatching `/` commands instead of treating them as answers."""
@@ -202,8 +221,8 @@ def _plain(text: str) -> str:
 
 
 def _cmd_setting(session: Session, args: list[str]) -> None:
-    """Manage named LLM profiles: wizard, flags, --list, --remove."""
-    from opennovel.settings_store import ProfileConfig, UserSettings, mask_key, save_user_settings
+    """Manage the complete application configuration."""
+    from opennovel.settings_store import ProfileConfig
 
     if "--list" in args:
         _list_profiles(session)
@@ -217,7 +236,22 @@ def _cmd_setting(session: Session, args: list[str]) -> None:
         return
 
     flags = {}
-    for key in ("--name", "--base-url", "--api-key", "--model"):
+    setting_flags = (
+        "--name",
+        "--base-url",
+        "--api-key",
+        "--model",
+        "--temperature",
+        "--max-tokens",
+        "--interval",
+        "--language",
+        "--chapter-target-chars",
+        "--max-chapters",
+        "--output-dir",
+        "--style-check",
+        "--plot-check",
+    )
+    for key in setting_flags:
         if key in args:
             i = args.index(key)
             if i + 1 >= len(args):
@@ -225,7 +259,25 @@ def _cmd_setting(session: Session, args: list[str]) -> None:
                 return
             flags[key[2:].replace("-", "_")] = args[i + 1]
 
+    profile_flag_names = {"name", "base_url", "api_key", "model"}
+    has_profile_flags = bool(profile_flag_names.intersection(flags))
+    has_runtime_flags = bool(set(flags) - profile_flag_names)
     if flags:
+        user_settings = session.ensure_user_settings()
+        if user_settings:
+            current_runtime = user_settings.runtime
+        else:
+            from opennovel.config import runtime_from_settings
+
+            current_runtime = runtime_from_settings(session.settings)
+        runtime = _runtime_from_values(current_runtime, flags)
+        if runtime is None:
+            session.say("[red]生成参数格式错误，请检查数字范围和 on/off 开关[/red]")
+            return
+        if has_runtime_flags and not has_profile_flags:
+            session.save_runtime(runtime)
+            session.say("[green]运行设置已保存并立即生效[/green]")
+            return
         name = flags.get("name")
         api_key = flags.get("api_key")
         model = flags.get("model")
@@ -238,7 +290,7 @@ def _cmd_setting(session: Session, args: list[str]) -> None:
             api_key=api_key,
             model=model,
         )
-        _save_and_activate(session, profile)
+        _save_and_activate(session, profile, runtime)
         return
 
     # wizard
@@ -263,29 +315,108 @@ def _cmd_setting(session: Session, args: list[str]) -> None:
     if not model:
         session.say("[red]模型名不能为空[/red]")
         return
+    current = session.ensure_user_settings()
+    if current:
+        runtime = current.runtime
+    else:
+        from opennovel.config import runtime_from_settings
+
+        runtime = runtime_from_settings(session.settings)
+    answers = {}
+    prompts = [
+        ("temperature", f"采样温度（当前 {runtime.temperature}）："),
+        ("max_tokens", f"单次最大 token（当前 {runtime.max_tokens}）："),
+        ("interval", f"调用间隔秒数（当前 {runtime.call_interval}）："),
+        ("language", f"成书语言（当前 {runtime.language}）："),
+        ("chapter_target_chars", f"每章目标字数（当前 {runtime.chapter_target_chars}）："),
+        ("max_chapters", f"最大章节数（当前 {runtime.max_chapters}）："),
+        ("output_dir", f"输出目录（当前 {runtime.output_dir}）："),
+        ("style_check", f"风格检查 on/off（当前 {_on_off(runtime.style_check)}）："),
+        ("plot_check", f"剧情检查 on/off（当前 {_on_off(runtime.plot_check)}）："),
+    ]
+    for key, prompt in prompts:
+        value = session.ask(prompt)
+        if session.exiting:
+            return
+        if value:
+            answers[key] = value
+    runtime = _runtime_from_values(runtime, answers)
+    if runtime is None:
+        session.say("[red]生成参数格式错误，请重新执行 /setting[/red]")
+        return
     profile = ProfileConfig(name=name, base_url=base_url or None, api_key=api_key, model=model)
-    _save_and_activate(session, profile)
+    _save_and_activate(session, profile, runtime)
 
 
-def _save_and_activate(session: Session, profile) -> None:
-    session.save_profile(profile)
+def _save_and_activate(session: Session, profile, runtime=None) -> None:
+    session.save_profile(profile, runtime)
     session.say(f"[green]已保存并切换到 {profile.name}（{profile.model}）[/green]")
+
+
+def _runtime_from_values(current, values: dict[str, str]):
+    """Overlay slash-command/form values on a RuntimeConfig."""
+    from opennovel.settings_store import RuntimeConfig
+
+    data = current.model_dump()
+    aliases = {
+        "interval": "call_interval",
+    }
+    bool_fields = {"style_check", "plot_check"}
+    try:
+        for key, value in values.items():
+            target = aliases.get(key, key)
+            if target not in data:
+                continue
+            data[target] = _parse_switch(value) if target in bool_fields else value
+        return RuntimeConfig.model_validate(data)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_switch(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "on", "yes", "是", "开"}:
+        return True
+    if normalized in {"0", "false", "off", "no", "否", "关"}:
+        return False
+    raise ValueError(f"invalid switch: {value}")
+
+
+def _on_off(value: bool) -> str:
+    return "on" if value else "off"
 
 
 def _list_profiles(session: Session) -> None:
     us = session.ensure_user_settings()
-    if us is None or not us.profiles:
-        session.say("[yellow]还没有任何配置，用 /setting 添加[/yellow]")
-        return
+    if us is None:
+        from opennovel.config import runtime_from_settings
+        from opennovel.settings_store import UserSettings
+
+        us = UserSettings(runtime=runtime_from_settings(session.settings))
     from opennovel.settings_store import mask_key
 
     lines = ["[bold]已配置的模型：[/bold]"]
-    for i, (name, p) in enumerate(us.profiles.items(), 1):
-        mark = "[green]*[/green]" if name == us.active else " "
-        lines.append(
-            f"  {mark} {i}. {name}  {p.model}  "
-            f"{p.base_url or 'OpenAI 官方'}  {mask_key(p.api_key)}"
-        )
+    if not us.profiles:
+        lines.append("  [yellow]暂无模型，用 /setting 添加[/yellow]")
+    else:
+        for i, (name, p) in enumerate(us.profiles.items(), 1):
+            mark = "[green]*[/green]" if name == us.active else " "
+            lines.append(
+                f"  {mark} {i}. {name}  {p.model}  "
+                f"{p.base_url or 'OpenAI 官方'}  {mask_key(p.api_key)}"
+            )
+    runtime = us.runtime
+    lines.extend(
+        [
+            "[bold]生成参数：[/bold]",
+            f"  temperature={runtime.temperature}  max_tokens={runtime.max_tokens}  "
+            f"interval={runtime.call_interval}s",
+            f"  language={runtime.language}  chapter_chars={runtime.chapter_target_chars}  "
+            f"max_chapters={runtime.max_chapters}",
+            f"  output_dir={runtime.output_dir}  style_check={_on_off(runtime.style_check)}  "
+            f"plot_check={_on_off(runtime.plot_check)}",
+        ]
+    )
     session.say("\n".join(lines))
 
 
@@ -300,8 +431,16 @@ def _remove_profile(session: Session, name: str) -> None:
     del us.profiles[name]
     if was_active:
         us.active = ""
-    save_user_settings(us)
+    save_user_settings(us, session.settings_path)
     session.user_settings = us
+    if was_active:
+        from opennovel.config import settings_from_user_settings
+        from opennovel.llm import UnconfiguredProvider
+
+        session.settings = settings_from_user_settings(us)
+        session.provider = UnconfiguredProvider()
+        if session.on_provider_change is not None:
+            session.on_provider_change()
     session.say(f"[green]已删除配置：{name}[/green]")
 
 
@@ -334,8 +473,11 @@ def _cmd_model(session: Session, args: list[str]) -> None:
     us.active = profile.name
     from opennovel.settings_store import save_user_settings
 
-    save_user_settings(us)
+    save_user_settings(us, session.settings_path)
     session.user_settings = us
+    from opennovel.config import settings_from_user_settings
+
+    session.settings = settings_from_user_settings(us)
     session.switch_provider(profile)
     session.say(f"[green]已切换到 {profile.name}（{profile.model}）[/green]")
 

@@ -14,7 +14,7 @@ from opennovel.llm.provider import (
 from opennovel.llm.registry import (
     ProviderConfigError,
     build_provider_from_profile,
-    provider_from_env,
+    provider_from_settings,
 )
 from opennovel.llm.types import ChatMessage, CompletionRequest, CompletionResponse
 
@@ -29,5 +29,5 @@ __all__ = [
     "ProviderConfigError",
     "UnconfiguredProvider",
     "build_provider_from_profile",
-    "provider_from_env",
+    "provider_from_settings",
 ]

@@ -10,7 +10,9 @@ from pydantic import ValidationError
 
 from opennovel.config import load_settings
 from opennovel.settings_store import (
+    default_config_path,
     ProfileConfig,
+    RuntimeConfig,
     UserSettings,
     load_user_settings,
     mask_key,
@@ -47,6 +49,14 @@ def test_store_roundtrip(tmp_path):
     assert loaded.active_profile().model == "deepseek-chat"
 
 
+def test_default_config_path_does_not_use_environment(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", "/tmp/ignored.json")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/also-ignored")
+
+    assert default_config_path() == tmp_path / ".config" / "opennovel" / "settings.json"
+
+
 def test_store_atomic_no_tmp_leftover(tmp_path):
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
@@ -79,25 +89,22 @@ def test_profile_requires_key_and_model():
         ProfileConfig(name="x", api_key="k")
 
 
-def test_load_settings_prefers_config_file(monkeypatch, tmp_path):
+def test_load_settings_reads_config_file(tmp_path):
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
-    monkeypatch.setenv("OPENNOVEL_LLM_API_KEY", "sk-env-key")
-    monkeypatch.setenv("OPENNOVEL_LLM_MODEL", "env-model")
-    s = load_settings()
+    s = load_settings(path)
     assert s.llm_api_key == "sk-deepseek123456"
     assert s.llm_model == "deepseek-chat"
     assert s.llm_base_url == "https://api.deepseek.com/v1"
 
 
-def test_load_settings_ignores_config_when_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "nope.json"))
+def test_load_settings_ignores_environment_when_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENNOVEL_LLM_API_KEY", "sk-env-key")
     monkeypatch.setenv("OPENNOVEL_LLM_MODEL", "env-model")
-    s = load_settings()
-    assert s.llm_api_key == "sk-env-key"
-    assert s.llm_model == "env-model"
+    s = load_settings(tmp_path / "nope.json")
+    assert s.llm_api_key == ""
+    assert s.llm_model == ""
+    assert s.llm_base_url is None
 
 
 def test_setting_flags_saves_and_switches(monkeypatch, tmp_path, make_session):
@@ -111,8 +118,6 @@ def test_setting_flags_saves_and_switches(monkeypatch, tmp_path, make_session):
         return FakeProvider(model=profile.model)
 
     monkeypatch.setattr("opennovel.llm.build_provider_from_profile", fake_builder)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
-
     session = make_session()
     handle_command(
         session,
@@ -125,21 +130,61 @@ def test_setting_flags_saves_and_switches(monkeypatch, tmp_path, make_session):
     assert "已保存并切换" in session.console.file.getvalue()
 
 
-def test_setting_wizard_flow(monkeypatch, tmp_path, make_session):
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
+def test_setting_wizard_flow(tmp_path, make_session):
     session = make_session()
-    lines = iter(["deepseek", "https://api.deepseek.com/v1", "sk-abc12345678", "deepseek-chat"])
+    lines = iter(
+        [
+            "deepseek",
+            "https://api.deepseek.com/v1",
+            "sk-abc12345678",
+            "deepseek-chat",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]
+    )
     session.console.input = lambda prompt="", **kwargs: next(lines)
     handle_command(session, "/setting")
     us = load_user_settings(tmp_path / "settings.json")
     assert us.active == "deepseek"
     assert us.profiles["deepseek"].model == "deepseek-chat"
+    assert us.runtime.output_dir == str(tmp_path)
+    assert us.runtime.max_chapters == 1
+    assert us.runtime.chapter_target_chars == 200
+
+
+def test_setting_runtime_flags_save_and_apply(tmp_path, make_session):
+    session = make_session()
+    handle_command(
+        session,
+        "/setting --temperature 0.4 --max-tokens 7000 --interval 3 "
+        "--language en --chapter-target-chars 4500 --max-chapters 12 "
+        "--output-dir books --style-check off --plot-check on",
+    )
+
+    us = load_user_settings(tmp_path / "settings.json")
+    assert us.runtime.temperature == 0.4
+    assert us.runtime.max_tokens == 7000
+    assert us.runtime.call_interval == 3
+    assert us.runtime.language == "en"
+    assert us.runtime.chapter_target_chars == 4500
+    assert us.runtime.max_chapters == 12
+    assert us.runtime.output_dir == "books"
+    assert us.runtime.style_check is False
+    assert us.runtime.plot_check is True
+    assert session.settings.llm_temperature == 0.4
+    assert session.settings.output_dir == Path("books")
 
 
 def test_setting_list_masks_key(make_session, monkeypatch, tmp_path):
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
     session = make_session()
     handle_command(session, "/setting --list")
     out = session.console.file.getvalue()
@@ -152,12 +197,26 @@ def test_setting_list_masks_key(make_session, monkeypatch, tmp_path):
 def test_setting_remove(make_session, monkeypatch, tmp_path):
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
     session = make_session()
     handle_command(session, "/setting --remove qwen")
     us = load_user_settings(path)
     assert "qwen" not in us.profiles
     assert us.active == "deepseek"
+
+
+def test_setting_remove_active_unconfigures_session(make_session, tmp_path):
+    from opennovel.llm import UnconfiguredProvider
+
+    path = tmp_path / "settings.json"
+    save_user_settings(make_user_settings(), path)
+    session = make_session()
+
+    handle_command(session, "/setting --remove deepseek")
+
+    us = load_user_settings(path)
+    assert us.active == ""
+    assert session.settings.llm_model == ""
+    assert isinstance(session.provider, UnconfiguredProvider)
 
 
 def test_model_switch_by_name(make_session, monkeypatch, tmp_path):
@@ -172,8 +231,6 @@ def test_model_switch_by_name(make_session, monkeypatch, tmp_path):
     monkeypatch.setattr("opennovel.llm.build_provider_from_profile", fake_builder)
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
-
     session = make_session()
     handle_command(session, "/model qwen")
     assert built["profile"].name == "qwen"
@@ -193,8 +250,6 @@ def test_model_switch_by_index(make_session, monkeypatch, tmp_path):
     monkeypatch.setattr("opennovel.llm.build_provider_from_profile", fake_builder)
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
-
     session = make_session()
     handle_command(session, "/model 2")
     assert built[-1].name == "qwen"
@@ -212,8 +267,6 @@ def test_model_switch_interactive_prompt(make_session, monkeypatch, tmp_path):
     monkeypatch.setattr("opennovel.llm.build_provider_from_profile", fake_builder)
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
-
     session = make_session()
     session.console.input = lambda prompt="": "2"
     handle_command(session, "/model")
@@ -223,14 +276,12 @@ def test_model_switch_interactive_prompt(make_session, monkeypatch, tmp_path):
 def test_model_switch_unknown(make_session, monkeypatch, tmp_path):
     path = tmp_path / "settings.json"
     save_user_settings(make_user_settings(), path)
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
     session = make_session()
     handle_command(session, "/model nope")
     assert "未找到配置" in session.console.file.getvalue()
 
 
-def test_model_with_no_profiles(make_session, monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "nope.json"))
+def test_model_with_no_profiles(make_session):
     session = make_session()
     handle_command(session, "/model")
     assert "先 /setting" in session.console.file.getvalue()

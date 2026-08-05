@@ -41,81 +41,77 @@ Enter 提交，Alt+Enter 换行，输入 `/` 会在输入栏正上方显示命�
 | `/style` | 查看当前风格锚点 |
 | `/checks` | 查看各章风格与剧情检查报告 |
 | `/rewrite N` | 手动重写第 N 章 |
-| `/setting` | 打开独立模型配置页；也支持参数式设置、`--list` 和 `--remove NAME` |
+| `/setting` | 打开独立配置页（模型 + 生成参数）；也支持参数式设置、`--list` 和 `--remove NAME` |
 | `/model` | 切换已配置的模型（名称或序号） |
 | `/help` `/exit` | 帮助 / 退出 |
 
 自由输入（自然语言）示例：`帮我开一本新书叫《雾中城》`、`把第二章重写得更紧张`、
 `现在写到哪了`、`陈默后来叛变了`（=追加剧情）。
 
-### 模型配置
+### Agent 配置
 
-`/setting` 与 `/model` 管理**命名模型配置**（独立配置文件 `~/.config/opennovel/settings.json`，
-原子写入、权限 0600、密钥掩码显示；可用 `OPENNOVEL_CONFIG_FILE` 覆盖路径）：
+`/setting` 是 Agent 的**唯一配置入口**。模型 profile 和全局生成参数统一保存在
+`~/.config/opennovel/settings.json`（原子写入、权限 0600、密钥掩码显示）：
 
 ```bash
 /setting --name deepseek --base-url https://api.deepseek.com/v1 --api-key sk-xxx --model deepseek-chat
+/setting --temperature 0.7 --max-tokens 4096 --interval 20
 /setting --list          # 查看所有配置（密钥掩码）
 /model qwen              # 按名称切换
 /model 2                 # 或按序号切换
 ```
 
-配置文件存在时其 active 配置**优先于 .env 环境变量**（含启动时）；会话内切换即时生效并持久化。
+程序不加载 `.env`，也不读取 `OPENNOVEL_*` 或 `OPENAI_API_KEY`。会话内保存和切换会即时生效并持久化。
 首次启动即使尚未配置 API key/model 也会进入交互界面，输入 `/setting` 按提示配置；
 API key 输入过程及聊天记录均会隐藏。向导中的 base URL 可直接回车留空（使用 OpenAI 官方地址）。
 
-全屏模式下，裸 `/setting` 会切换到独立配置页。使用 Tab / Shift+Tab 切换字段，Enter 前进
-（在模型字段保存），Ctrl+S 随时保存，Esc 返回聊天。控制台回退模式继续使用逐项向导。
+全屏模式下，裸 `/setting` 会切换到双栏独立配置页。使用 Tab / Shift+Tab 切换字段，Enter 前进
+（在最后一项保存），Ctrl+S 随时保存，Esc 返回聊天。控制台回退模式继续使用逐项向导。
 
 ### 批量模式
 
 ```bash
 uv run opennovel write --title 雾中城 --plot "少年雨夜进城寻找失踪的妹妹" --style "冷峻克制"
 # 或从文件读剧情：
-uv run opennovel write --title 雾中城 --plot-file plot.txt --max-chapters 5
+uv run opennovel write --title 雾中城 --plot-file plot.txt
 ```
 
 产出 `novels/<title>/novel.json`（全书数据）与 `novels/<title>/novel.txt`（纯文本）。
 每章约 7 次 LLM 调用（风格提取 1 + 大纲 1 + 场景 1 + 正文 N + 检查 2 + 状态更新 1）；
-rpm 配额低的服务商请设置 `OPENNOVEL_LLM_INTERVAL`。
+rpm 配额低的服务商请在 `/setting` 中增加“调用间隔”。
 
 ## LLM 配置 / LLM config
 
-Provider 层使用 openai SDK 兼容 OpenAI 兼容服务（DeepSeek / 通义千问 / 智谱 GLM / Moonshot 等），
-可通过交互界面的 `/setting` 配置，也可使用环境变量；批量写作模式缺 API key 或 model 时会报清晰错误。
-参考 `.env.example`：`cp .env.example .env` 后按服务商填写，CLI 启动时自动加载（python-dotenv）。
+全部配置只从 `/setting` 生成的 `~/.config/opennovel/settings.json` 读取；未配置模型时会话会提示先用
+`/setting`。旧 `.env` 中的任何模型或生成参数都不会再注入程序。
 
-主要配置项（前缀 `OPENNOVEL_`）：
+全局生成参数：
 
-| 变量 | 默认 | 说明 |
+| 设置项 | 默认 | 说明 |
 |---|---|---|
-| `OPENNOVEL_LLM_API_KEY` | - | API 密钥（必填，或用 `OPENAI_API_KEY`） |
-| `OPENNOVEL_LLM_MODEL` | - | 模型名（必填） |
-| `OPENNOVEL_LLM_BASE_URL` | OpenAI 官方 | 服务地址 |
-| `OPENNOVEL_LLM_TEMPERATURE` | 0.7 | 采样温度（规划大纲调低更稳定，写正文调高更丰富） |
-| `OPENNOVEL_LLM_MAX_TOKENS` | 4096 | 单次调用 token 上限（推理模型需留思考余量） |
-| `OPENNOVEL_LLM_INTERVAL` | 0 | 每次调用前固定等待秒数（低 rpm 配额的服务商设大些） |
-| `OPENNOVEL_LANGUAGE` | zh | 成书语言 |
-| `OPENNOVEL_CHAPTER_TARGET_CHARS` | 3000 | 每章目标字数 |
-| `OPENNOVEL_MAX_CHAPTERS` | 20 | 最大章节数 |
-| `OPENNOVEL_OUTPUT_DIR` | novels | 成书输出目录 |
-| `OPENNOVEL_STYLE_CHECK` | on | 章节级风格一致性检查开关 |
-| `OPENNOVEL_PLOT_CHECK` | on | 章节级剧情一致性检查开关 |
-| `OPENNOVEL_CONFIG_FILE` | - | 用户配置文件路径（默认 ~/.config/opennovel/settings.json） |
+| 采样温度 | 0.7 | 规划大纲调低更稳定，写正文调高更丰富 |
+| 单次最大 token | 4096 | 推理模型需为思考过程预留余量 |
+| 调用间隔 | 0 秒 | 低 rpm 配额的服务商可设大些 |
+| 成书语言 | zh | 小说输出语言 |
+| 每章目标字数 | 3000 | 编排器分配场景篇幅的依据 |
+| 最大章节数 | 20 | 大纲章节上限 |
+| 输出目录 | novels | 成书保存位置 |
+| 风格检查 | on | 章节级风格一致性检查开关 |
+| 剧情检查 | on | 章节级剧情一致性检查开关 |
 
 ## 目录结构 / Structure
 
 ```
 src/opennovel/
   cli.py            CLI 入口（交互模式 + write 批量成书）
-  config.py         应用配置：Settings + load_settings（读 OPENNOVEL_* 环境变量）
+  config.py         应用配置：从 /setting 持久化数据构建 Settings
   models/
     novel.py        数据模型：Novel（聚合根）/ Chapter / Scene / Character
     storage.py      JSON 持久化（每书一个 novels/<title>/novel.json）
   llm/
     types.py        消息/请求/响应类型（ChatMessage/CompletionRequest/CompletionResponse）
     provider.py     Provider 抽象基类 + OpenAI 兼容实现 + FakeProvider（测试用）
-    registry.py     工厂：从环境变量配置 Provider
+    registry.py     工厂：从 active 模型配置构建 Provider
   memory/
     style_profile.py  风格锚点：提取 / 锚点块 / 偏离检查（服务风格一致性）
     plot_state.py     剧情状态：增量更新 / 简报 / 一致性检查（服务剧情连贯性）
@@ -130,7 +126,7 @@ src/opennovel/
     repl.py           控制台 REPL（非 TTY 回退）：/命令 + 意图路由分发
     display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
     theme.py          共享终端视觉规范：配色 + prompt_toolkit 样式
-  settings_store.py   用户配置：命名模型配置的读写（原子写/0600/掩码）
+  settings_store.py   用户配置：模型 profile + 全局生成参数（原子写/0600/掩码）
 tests/              冒烟测试 + 数据模型测试
 ```
 

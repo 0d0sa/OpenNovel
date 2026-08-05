@@ -1,6 +1,5 @@
 """Tests for style memory: extraction, anchor block, deviation check."""
 
-import os
 
 import pytest
 
@@ -12,6 +11,7 @@ from opennovel.memory import (
     extract_style_profile,
     style_anchor_block,
 )
+from tests._realapi import REAL_API_AVAILABLE
 
 SAMPLE = "雨把整座城泡软了。街灯一盏盏亮起，像溺水者伸出的手。"
 
@@ -89,19 +89,11 @@ def test_check_deviation_invalid_score_rejected():
         check_style_deviation(provider, StyleProfile(tone="冷峻"), "正文")
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("OPENNOVEL_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")),
-    reason="requires real API key",
-)
+@pytest.mark.skipif(not REAL_API_AVAILABLE, reason="requires configured profile (run /setting)")
 def test_real_extraction_smoke():
-    from pathlib import Path
+    from opennovel.llm import provider_from_settings
 
-    from dotenv import load_dotenv
-
-    load_dotenv(Path(".env"))
-    from opennovel.llm import provider_from_env
-
-    provider = provider_from_env()
+    provider = provider_from_settings()
     profile = extract_style_profile(provider, "雨夜，少年抵达雾城寻找失踪的妹妹。", "冷峻克制")
     assert profile.sample_passage
     print(f"\nprofile: {profile.model_dump()}")

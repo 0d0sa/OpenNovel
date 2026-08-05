@@ -100,12 +100,16 @@ def test_fullscreen_accept_flow_with_pipe(tmp_path):
     assert any(r == "system" for r, _ in app.view.messages)
 
 
-def test_fullscreen_setting_opens_dedicated_screen(tmp_path, monkeypatch):
+def test_fullscreen_setting_opens_dedicated_screen(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(),
+        Settings(output_dir=tmp_path),
+        output=DummyOutput(),
+        settings_path=tmp_path / "settings.json",
+    )
     app.buffer.text = "/setting"
     app._on_accept(app.buffer)
 
@@ -116,7 +120,7 @@ def test_fullscreen_setting_opens_dedicated_screen(tmp_path, monkeypatch):
     assert app.view.messages[-1] == ("user", "/setting")
 
 
-def test_fullscreen_setting_prefills_active_profile_without_key(tmp_path, monkeypatch):
+def test_fullscreen_setting_prefills_active_profile_without_key(tmp_path):
     from opennovel.config import Settings
     from opennovel.settings_store import ProfileConfig, UserSettings, save_user_settings
     from opennovel.ui.app import FullScreenChatApp
@@ -131,8 +135,9 @@ def test_fullscreen_setting_prefills_active_profile_without_key(tmp_path, monkey
     save_user_settings(
         UserSettings(active="deepseek", profiles={"deepseek": profile}), path
     )
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput(), settings_path=path
+    )
     app._open_settings_screen()
 
     assert app.setting_name_buffer.text == "deepseek"
@@ -148,17 +153,19 @@ def test_fullscreen_setting_saves_and_returns_to_chat(tmp_path, monkeypatch):
     from opennovel.ui.app import FullScreenChatApp
 
     path = tmp_path / "settings.json"
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
     monkeypatch.setattr(
         "opennovel.llm.build_provider_from_profile",
         lambda profile, settings: FakeProvider(model=profile.model),
     )
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput(), settings_path=path
+    )
     app._open_settings_screen()
     app.setting_name_buffer.text = "qwen"
     app.setting_base_url_buffer.text = "https://example.test/v1"
     app.setting_api_key_buffer.text = "sk-new-secret"
     app.setting_model_buffer.text = "qwen-plus"
+    app.setting_temperature_buffer.text = "0.4"
     app._save_settings_form()
 
     saved = load_user_settings(path)
@@ -167,6 +174,8 @@ def test_fullscreen_setting_saves_and_returns_to_chat(tmp_path, monkeypatch):
     assert app.model == "qwen-plus"
     assert saved.active == "qwen"
     assert saved.profiles["qwen"].api_key == "sk-new-secret"
+    assert saved.runtime.temperature == 0.4
+    assert app.session.settings.llm_temperature == 0.4
     assert "sk-new-secret" not in app.view.ansi_text
     assert "已保存并切换" in app.view.ansi_text
 
@@ -183,12 +192,13 @@ def test_fullscreen_setting_keeps_existing_key_when_blank(tmp_path, monkeypatch)
     save_user_settings(
         UserSettings(active="deepseek", profiles={"deepseek": profile}), path
     )
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(path))
     monkeypatch.setattr(
         "opennovel.llm.build_provider_from_profile",
         lambda profile, settings: FakeProvider(model=profile.model),
     )
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput(), settings_path=path
+    )
     app._open_settings_screen()
     app.setting_model_buffer.text = "deepseek-reasoner"
     app._save_settings_form()
@@ -198,12 +208,16 @@ def test_fullscreen_setting_keeps_existing_key_when_blank(tmp_path, monkeypatch)
     assert saved.profiles["deepseek"].model == "deepseek-reasoner"
 
 
-def test_fullscreen_setting_validation_stays_on_screen(tmp_path, monkeypatch):
+def test_fullscreen_setting_validation_stays_on_screen(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(),
+        Settings(output_dir=tmp_path),
+        output=DummyOutput(),
+        settings_path=tmp_path / "settings.json",
+    )
     app._open_settings_screen()
     app.setting_model_buffer.text = "test-model"
     app._save_settings_form()
@@ -213,12 +227,16 @@ def test_fullscreen_setting_validation_stays_on_screen(tmp_path, monkeypatch):
     assert app.layout.current_buffer is app.setting_name_buffer
 
 
-def test_fullscreen_setting_cancel_clears_secret(tmp_path, monkeypatch):
+def test_fullscreen_setting_cancel_clears_secret(tmp_path):
     from opennovel.config import Settings
     from opennovel.ui.app import FullScreenChatApp
 
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(),
+        Settings(output_dir=tmp_path),
+        output=DummyOutput(),
+        settings_path=tmp_path / "settings.json",
+    )
     app._open_settings_screen()
     app.setting_api_key_buffer.text = "sk-should-not-linger"
     app._close_settings_screen()
@@ -383,8 +401,12 @@ def test_enter_applies_default_first_completion_and_executes(tmp_path, monkeypat
     from opennovel.ui.app import FullScreenChatApp
     from opennovel.ui.input import apply_selected_completion
 
-    monkeypatch.setenv("OPENNOVEL_CONFIG_FILE", str(tmp_path / "settings.json"))
-    app = FullScreenChatApp(FakeProvider(), Settings(output_dir=tmp_path), output=DummyOutput())
+    app = FullScreenChatApp(
+        FakeProvider(),
+        Settings(output_dir=tmp_path),
+        output=DummyOutput(),
+        settings_path=tmp_path / "settings.json",
+    )
     app.buffer.text = "/sett"
     app.buffer.cursor_position = len(app.buffer.text)
     completions = list(

@@ -1,6 +1,5 @@
 """Tests for plot memory: incremental update/merge, brief, consistency check."""
 
-import os
 
 import pytest
 
@@ -16,6 +15,7 @@ from opennovel.memory import (
     plot_state_brief,
     update_plot_state,
 )
+from tests._realapi import REAL_API_AVAILABLE
 
 CH1 = "少年林晚抵达雾城，在车站与老警察陈默相遇。他注意到站台角落一封信。"
 CH2 = "林晚循着信上的地址找到旧公寓，陈默告诉他妹妹两年前来过这里。"
@@ -126,19 +126,11 @@ def test_two_chapter_loop_with_fake_provider():
     assert state.characters["陈默"].role == "老警察"
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("OPENNOVEL_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")),
-    reason="requires real API key",
-)
+@pytest.mark.skipif(not REAL_API_AVAILABLE, reason="requires configured profile (run /setting)")
 def test_real_update_and_check_smoke():
-    from pathlib import Path
+    from opennovel.llm import provider_from_settings
 
-    from dotenv import load_dotenv
-
-    load_dotenv(Path(".env"))
-    from opennovel.llm import provider_from_env
-
-    provider = provider_from_env()
+    provider = provider_from_settings()
     state = PlotState()
     state = update_plot_state(provider, CH1, 1, state)
     assert state.characters

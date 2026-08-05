@@ -1,29 +1,11 @@
-"""Application settings, loaded from OPENNOVEL_* env vars.
-
-Values are read from the environment once (`load_settings`); the CLI loads
-`.env` via python-dotenv before anything reads them. Novel-generation knobs
-(chapter size, max chapters, language) are consumed by the orchestrator.
-"""
+"""Application settings loaded exclusively from the ``/setting`` store."""
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
-ENV_API_KEY = "OPENNOVEL_LLM_API_KEY"
-ENV_BASE_URL = "OPENNOVEL_LLM_BASE_URL"
-ENV_MODEL = "OPENNOVEL_LLM_MODEL"
-ENV_TEMPERATURE = "OPENNOVEL_LLM_TEMPERATURE"
-ENV_MAX_TOKENS = "OPENNOVEL_LLM_MAX_TOKENS"
-ENV_LLM_INTERVAL = "OPENNOVEL_LLM_INTERVAL"
-ENV_LANGUAGE = "OPENNOVEL_LANGUAGE"
-ENV_CHAPTER_TARGET_CHARS = "OPENNOVEL_CHAPTER_TARGET_CHARS"
-ENV_MAX_CHAPTERS = "OPENNOVEL_MAX_CHAPTERS"
-ENV_OUTPUT_DIR = "OPENNOVEL_OUTPUT_DIR"
-ENV_STYLE_CHECK = "OPENNOVEL_STYLE_CHECK"
-ENV_PLOT_CHECK = "OPENNOVEL_PLOT_CHECK"
+from opennovel.settings_store import RuntimeConfig, UserSettings, load_user_settings
 
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 4096
@@ -47,59 +29,50 @@ class Settings:
     plot_check: bool = True
 
 
-def load_settings(env: Mapping[str, str] | None = None) -> Settings:
-    """Build Settings from env vars; missing keys fall back to defaults.
-
-    `llm_api_key` also falls back to OPENAI_API_KEY; `llm_base_url` defaults
-    to None (OpenAI official endpoint). Invalid numeric values raise ValueError.
-
-    Priority: if a user settings file exists (settings_store) and its active
-    profile is valid, the profile's base_url / api_key / model override the
-    environment (config file wins).
-    """
-    env = os.environ if env is None else env
-    profile = _active_profile_from_store()
+def settings_from_user_settings(user_settings: UserSettings | None) -> Settings:
+    """Convert persisted user settings into immutable application settings."""
+    profile = user_settings.active_profile() if user_settings else None
+    runtime = user_settings.runtime if user_settings else RuntimeConfig()
     return Settings(
-        llm_api_key=profile.api_key if profile else (env.get(ENV_API_KEY) or env.get("OPENAI_API_KEY") or ""),
-        llm_model=profile.model if profile else env.get(ENV_MODEL, ""),
-        llm_base_url=profile.base_url if profile else (env.get(ENV_BASE_URL) or None),
-        llm_temperature=_float(env, ENV_TEMPERATURE, DEFAULT_TEMPERATURE),
-        llm_max_tokens=_int(env, ENV_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-        llm_call_interval=_float(env, ENV_LLM_INTERVAL, 0.0),
-        language=env.get(ENV_LANGUAGE, "zh"),
-        chapter_target_chars=_int(env, ENV_CHAPTER_TARGET_CHARS, 3000),
-        max_chapters=_int(env, ENV_MAX_CHAPTERS, 20),
-        output_dir=Path(env.get(ENV_OUTPUT_DIR, "novels")),
-        style_check=_bool(env, ENV_STYLE_CHECK, True),
-        plot_check=_bool(env, ENV_PLOT_CHECK, True),
+        llm_api_key=profile.api_key if profile else "",
+        llm_model=profile.model if profile else "",
+        llm_base_url=profile.base_url if profile else None,
+        llm_temperature=runtime.temperature,
+        llm_max_tokens=runtime.max_tokens,
+        llm_call_interval=runtime.call_interval,
+        language=runtime.language,
+        chapter_target_chars=runtime.chapter_target_chars,
+        max_chapters=runtime.max_chapters,
+        output_dir=Path(runtime.output_dir),
+        style_check=runtime.style_check,
+        plot_check=runtime.plot_check,
     )
 
 
-def _active_profile_from_store():
-    """Best-effort: load the active profile from the user settings file."""
-    from opennovel.settings_store import load_user_settings
+def runtime_from_settings(settings: Settings) -> RuntimeConfig:
+    """Build a persisted runtime model from an in-memory Settings object."""
+    return RuntimeConfig(
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        call_interval=settings.llm_call_interval,
+        language=settings.language,
+        chapter_target_chars=settings.chapter_target_chars,
+        max_chapters=settings.max_chapters,
+        output_dir=str(settings.output_dir),
+        style_check=settings.style_check,
+        plot_check=settings.plot_check,
+    )
 
+
+def load_settings(path: Path | None = None) -> Settings:
+    """Load the complete configuration written by ``/setting``.
+
+    Missing files use built-in defaults with no active model. Invalid files
+    are treated the same way so the interactive UI can still open and repair
+    the configuration.
+    """
     try:
-        settings = load_user_settings()
+        user_settings = load_user_settings(path)
     except Exception:
-        return None
-    if settings is None:
-        return None
-    return settings.active_profile()
-
-
-def _bool(env: Mapping[str, str], name: str, default: bool) -> bool:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in {"0", "false", "off", "no"}
-
-
-def _int(env: Mapping[str, str], name: str, default: int) -> int:
-    raw = env.get(name)
-    return int(raw) if raw else default
-
-
-def _float(env: Mapping[str, str], name: str, default: float) -> float:
-    raw = env.get(name)
-    return float(raw) if raw else default
+        user_settings = None
+    return settings_from_user_settings(user_settings)

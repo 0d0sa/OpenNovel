@@ -21,6 +21,7 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import (
     DynamicContainer,
     HSplit,
+    VSplit,
     Window,
 )
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl, Point, UIContent
@@ -68,11 +69,19 @@ class CenteredInputControl(BufferControl):
 class FullScreenChatApp:
     """Runs the chat session in a full-screen terminal application."""
 
-    def __init__(self, provider: Provider, settings: Settings, *, output=None):
+    def __init__(
+        self, provider: Provider, settings: Settings, *, output=None, settings_path=None
+    ):
         self.settings = settings
         self.model = provider.model
         self.view = ChatView()
-        self.session = Session(provider=provider, settings=settings, console=None, chat=self.view)
+        self.session = Session(
+            provider=provider,
+            settings=settings,
+            console=None,
+            chat=self.view,
+            settings_path=settings_path,
+        )
         self.session.show_status = self._system_view(
             lambda: display.status_view(self.session.novel)
             if self.session.novel
@@ -231,7 +240,7 @@ class FullScreenChatApp:
         @kb.add("enter", eager=True, filter=in_settings)
         @kb.add("c-j", eager=True, filter=in_settings)
         def _settings_enter(event):
-            if event.current_buffer is self.setting_model_buffer:
+            if event.current_buffer is self.setting_plot_check_buffer:
                 self._save_settings_form()
             else:
                 self._focus_settings_field(event, 1)
@@ -261,11 +270,29 @@ class FullScreenChatApp:
         self.setting_base_url_buffer = Buffer(multiline=False)
         self.setting_api_key_buffer = Buffer(multiline=False)
         self.setting_model_buffer = Buffer(multiline=False)
+        self.setting_temperature_buffer = Buffer(multiline=False)
+        self.setting_max_tokens_buffer = Buffer(multiline=False)
+        self.setting_interval_buffer = Buffer(multiline=False)
+        self.setting_language_buffer = Buffer(multiline=False)
+        self.setting_chapter_chars_buffer = Buffer(multiline=False)
+        self.setting_max_chapters_buffer = Buffer(multiline=False)
+        self.setting_output_dir_buffer = Buffer(multiline=False)
+        self.setting_style_check_buffer = Buffer(multiline=False)
+        self.setting_plot_check_buffer = Buffer(multiline=False)
         self._settings_buffers = [
             self.setting_name_buffer,
             self.setting_base_url_buffer,
             self.setting_api_key_buffer,
             self.setting_model_buffer,
+            self.setting_temperature_buffer,
+            self.setting_max_tokens_buffer,
+            self.setting_interval_buffer,
+            self.setting_language_buffer,
+            self.setting_chapter_chars_buffer,
+            self.setting_max_chapters_buffer,
+            self.setting_output_dir_buffer,
+            self.setting_style_check_buffer,
+            self.setting_plot_check_buffer,
         ]
 
         fields = [
@@ -290,7 +317,59 @@ class FullScreenChatApp:
                 self.setting_model_buffer,
                 "例如 deepseek-chat、qwen-plus、gpt-5",
             ),
+            self._settings_field(
+                "采样温度 / Temperature",
+                self.setting_temperature_buffer,
+                "0.0–2.0，默认 0.7",
+            ),
+            self._settings_field(
+                "最大 token / Max tokens",
+                self.setting_max_tokens_buffer,
+                "单次调用上限，默认 4096",
+            ),
+            self._settings_field(
+                "调用间隔 / Interval",
+                self.setting_interval_buffer,
+                "低 RPM 服务可增加秒数，默认 0",
+            ),
+            self._settings_field(
+                "成书语言 / Language",
+                self.setting_language_buffer,
+                "例如 zh、en",
+            ),
+            self._settings_field(
+                "每章目标字数 / Chapter chars",
+                self.setting_chapter_chars_buffer,
+                "默认 3000",
+            ),
+            self._settings_field(
+                "最大章节数 / Max chapters",
+                self.setting_max_chapters_buffer,
+                "默认 20",
+            ),
+            self._settings_field(
+                "输出目录 / Output directory",
+                self.setting_output_dir_buffer,
+                "默认 novels",
+            ),
+            self._settings_field(
+                "风格检查 / Style check",
+                self.setting_style_check_buffer,
+                "on 或 off",
+            ),
+            self._settings_field(
+                "剧情检查 / Plot check",
+                self.setting_plot_check_buffer,
+                "on 或 off",
+            ),
         ]
+        form = VSplit(
+            [
+                HSplit(fields[:7]),
+                Window(width=1, char="│", style="class:settings.hint"),
+                HSplit(fields[7:]),
+            ]
+        )
         self.settings_root = HSplit(
             [
                 Window(
@@ -311,13 +390,12 @@ class FullScreenChatApp:
                     wrap_lines=True,
                     always_hide_cursor=True,
                 ),
-                *fields,
+                form,
                 Window(
                     content=FormattedTextControl(self._settings_error_fragments),
                     height=1,
                     always_hide_cursor=True,
                 ),
-                Window(height=1),
                 Window(
                     content=FormattedTextControl(self._settings_footer_fragments),
                     height=1,
@@ -356,7 +434,6 @@ class FullScreenChatApp:
                     height=1,
                     style="class:settings.input",
                 ),
-                Window(height=1),
             ]
         )
 
@@ -366,7 +443,7 @@ class FullScreenChatApp:
                 ("class:settings.brand", "  OpenNovel"),
                 ("class:settings.meta", "  /  设置"),
                 ("", "\n"),
-                ("class:settings.meta", "  模型配置  ·  "),
+                ("class:settings.meta", "  Agent 配置  ·  "),
                 (
                     "class:settings.active",
                     self.model or "尚未配置模型",
@@ -378,10 +455,10 @@ class FullScreenChatApp:
     def _settings_intro_fragments():
         return FormattedText(
             [
-                ("class:settings.title", "  配置模型\n"),
+                ("class:settings.title", "  配置模型与生成参数\n"),
                 (
                     "class:settings.hint",
-                    "  添加或更新 OpenAI 兼容服务；保存后立即在当前会话生效。\n\n",
+                    "  模型与生成参数统一保存在本地；保存后立即在当前会话生效。\n\n",
                 ),
                 ("class:settings.label", "  已保存的配置"),
             ]
@@ -427,15 +504,31 @@ class FullScreenChatApp:
         )
 
     def _open_settings_screen(self) -> None:
-        """Populate and display the standalone model settings page."""
+        """Populate and display the standalone settings page."""
+        from opennovel.config import runtime_from_settings
+
         self._settings_error = ""
         user_settings = self.session.ensure_user_settings()
         profile = user_settings.active_profile() if user_settings else None
+        runtime = (
+            user_settings.runtime
+            if user_settings
+            else runtime_from_settings(self.session.settings)
+        )
         values = [
             profile.name if profile else "",
             (profile.base_url or "") if profile else "",
             "",
             profile.model if profile else "",
+            str(runtime.temperature),
+            str(runtime.max_tokens),
+            str(runtime.call_interval),
+            runtime.language,
+            str(runtime.chapter_target_chars),
+            str(runtime.max_chapters),
+            runtime.output_dir,
+            "on" if runtime.style_check else "off",
+            "on" if runtime.plot_check else "off",
         ]
         for buffer, value in zip(self._settings_buffers, values):
             buffer.text = value
@@ -460,7 +553,9 @@ class FullScreenChatApp:
         event.app.layout.focus(target)
 
     def _save_settings_form(self) -> None:
+        from opennovel.config import runtime_from_settings
         from opennovel.settings_store import ProfileConfig
+        from opennovel.ui.repl import _runtime_from_values
 
         name = self.setting_name_buffer.text.strip()
         base_url = self.setting_base_url_buffer.text.strip()
@@ -487,6 +582,30 @@ class FullScreenChatApp:
             self.app.invalidate()
             return
 
+        current_runtime = (
+            user_settings.runtime
+            if user_settings
+            else runtime_from_settings(self.session.settings)
+        )
+        runtime = _runtime_from_values(
+            current_runtime,
+            {
+                "temperature": self.setting_temperature_buffer.text.strip(),
+                "max_tokens": self.setting_max_tokens_buffer.text.strip(),
+                "interval": self.setting_interval_buffer.text.strip(),
+                "language": self.setting_language_buffer.text.strip(),
+                "chapter_target_chars": self.setting_chapter_chars_buffer.text.strip(),
+                "max_chapters": self.setting_max_chapters_buffer.text.strip(),
+                "output_dir": self.setting_output_dir_buffer.text.strip(),
+                "style_check": self.setting_style_check_buffer.text.strip(),
+                "plot_check": self.setting_plot_check_buffer.text.strip(),
+            },
+        )
+        if runtime is None:
+            self._settings_error = "生成参数无效，请检查数字范围、目录和 on/off 开关"
+            self.app.invalidate()
+            return
+
         try:
             profile = ProfileConfig(
                 name=name,
@@ -494,7 +613,7 @@ class FullScreenChatApp:
                 api_key=api_key,
                 model=model,
             )
-            self.session.save_profile(profile)
+            self.session.save_profile(profile, runtime)
         except Exception as exc:
             self._settings_error = f"保存失败：{exc}"
             self.app.invalidate()

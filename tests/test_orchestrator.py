@@ -1,6 +1,5 @@
 """End-to-end tests for the orchestration pipeline (with FakeProvider)."""
 
-import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from opennovel.config import Settings
 from opennovel.llm import FakeProvider
 from opennovel.memory import StyleDeviation, PlotConsistency
 from opennovel.models import Novel, SceneStatus
+from tests._realapi import REAL_API_AVAILABLE
 
 PLOT = "少年林晚雨夜抵达雾城寻找失踪的妹妹。"
 
@@ -144,19 +144,11 @@ def test_write_novel_respects_max_chapters(tmp_path):
     assert len(novel.chapters) == 1
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("OPENNOVEL_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")),
-    reason="requires real API key",
-)
-def test_real_write_small_novel(tmp_path):
-    from pathlib import Path as P
+@pytest.mark.skipif(not REAL_API_AVAILABLE, reason="requires configured profile (run /setting)")
+def test_real_write_small_novel(tmp_path, monkeypatch):
+    from opennovel.llm import provider_from_settings
 
-    from dotenv import load_dotenv
-
-    load_dotenv(P(".env"))
-    from opennovel.llm import provider_from_env
-
-    provider = provider_from_env()
+    provider = provider_from_settings()
     s = replace(
         Settings(),
         output_dir=tmp_path,

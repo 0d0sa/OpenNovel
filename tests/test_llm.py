@@ -12,7 +12,7 @@ from opennovel.llm import (
     LLMError,
     OpenAICompatibleProvider,
     ProviderConfigError,
-    provider_from_env,
+    provider_from_settings,
 )
 
 
@@ -53,26 +53,42 @@ def test_request_knobs_override_provider_defaults():
     assert sent.max_tokens == 100
 
 
-def test_provider_from_env_missing_key_raises(monkeypatch):
-    monkeypatch.delenv("OPENNOVEL_LLM_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("OPENNOVEL_LLM_MODEL", "deepseek-chat")
-    with pytest.raises(ProviderConfigError, match="API key"):
-        provider_from_env()
+def test_provider_from_settings_missing_config_raises(tmp_path):
+    with pytest.raises(ProviderConfigError, match="配置"):
+        provider_from_settings(path=tmp_path / "nope.json")
 
 
-def test_provider_from_env_missing_model_raises(monkeypatch):
-    monkeypatch.setenv("OPENNOVEL_LLM_API_KEY", "sk-test")
-    monkeypatch.delenv("OPENNOVEL_LLM_MODEL", raising=False)
-    with pytest.raises(ProviderConfigError, match="model"):
-        provider_from_env()
+def test_provider_from_settings_missing_model_raises(tmp_path):
+    from opennovel.settings_store import ProfileConfig, UserSettings, save_user_settings
+
+    path = tmp_path / "settings.json"
+    save_user_settings(
+        UserSettings(active="x", profiles={"x": ProfileConfig(name="x", api_key="sk-t", model="")}),
+        path,
+    )
+    with pytest.raises(ProviderConfigError, match="配置"):
+        provider_from_settings(path=path)
 
 
-def test_provider_from_env_builds_openai_compatible(monkeypatch):
-    monkeypatch.setenv("OPENNOVEL_LLM_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENNOVEL_LLM_BASE_URL", "https://api.deepseek.com")
-    monkeypatch.setenv("OPENNOVEL_LLM_MODEL", "deepseek-chat")
-    provider = provider_from_env()
+def test_provider_from_settings_builds_openai_compatible(tmp_path):
+    from opennovel.settings_store import ProfileConfig, UserSettings, save_user_settings
+
+    path = tmp_path / "settings.json"
+    save_user_settings(
+        UserSettings(
+            active="deepseek",
+            profiles={
+                "deepseek": ProfileConfig(
+                    name="deepseek",
+                    base_url="https://api.deepseek.com",
+                    api_key="sk-test",
+                    model="deepseek-chat",
+                )
+            },
+        ),
+        path,
+    )
+    provider = provider_from_settings(path=path)
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider.model == "deepseek-chat"
 
@@ -109,15 +125,17 @@ def test_structured_output_missing_fields_raises_llm_error():
         provider.complete_structured(req, Outline)
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("OPENNOVEL_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")),
-    reason="requires real API key",
-)
-def test_real_completion_smoke(monkeypatch):
-    monkeypatch.setenv("OPENNOVEL_LLM_MODEL", os.environ.get("OPENNOVEL_LLM_MODEL", "deepseek-chat"))
-    provider = provider_from_env()
+from tests._realapi import REAL_API_AVAILABLE
+
+
+@pytest.mark.skipif(not REAL_API_AVAILABLE, reason="requires configured profile (run /setting)")
+def test_real_completion_smoke():
+    provider = provider_from_settings()
     response = provider.complete(
-        CompletionRequest(messages=[ChatMessage(role="user", content="回复 OK")], max_tokens=16)
+        CompletionRequest(
+            messages=[ChatMessage(role="user", content="回复 OK")],
+            max_tokens=128,  # reasoning models need headroom beyond the reasoning budget
+        )
     )
     assert response.text
     assert response.model
