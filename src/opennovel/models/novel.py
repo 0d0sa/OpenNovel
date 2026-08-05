@@ -27,6 +27,14 @@ class Scene(BaseModel):
     status: SceneStatus = SceneStatus.PLANNED
 
 
+class ChapterPlan(BaseModel):
+    """One chapter in the book outline (persisted on Novel.outline)."""
+
+    title: str = Field(description="章节标题")
+    focus: str = Field(default="", description="本章核心冲突或进展，一句话")
+    scene_count: int = Field(default=3, ge=1, le=6, description="本章场景数，建议 2-4")
+
+
 class Chapter(BaseModel):
     """A chapter: a planning unit and a container of scenes."""
 
@@ -52,4 +60,5 @@ class Novel(BaseModel):
     plot: str = Field(default="", description="用户提供的剧情（原始文本）")
     style_profile: StyleProfile = Field(default_factory=StyleProfile)
     plot_state: PlotState = Field(default_factory=PlotState)
+    outline: list[ChapterPlan] = Field(default_factory=list, description="全书章节大纲（持久化，供续写/工具使用）")
     chapters: list[Chapter] = Field(default_factory=list)

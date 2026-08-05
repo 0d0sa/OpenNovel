@@ -12,8 +12,11 @@ novel fragments and chapters.
 ## 当前状态 / Status
 
 MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK 兼容层 + 流式输出）、
-`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`agent/`（编排 + 意图路由）、
-`ui/`（Codex CLI / Claude Code 风格聊天界面）全部实现，已用真实 API 跑通成书。
+`memory/`（风格提取/锚点/检查 + 剧情增量更新/简报/检查）、`ui/`（Codex CLI / Claude Code
+风格聊天界面）全部实现，已用真实 API 跑通成书。
+v2（对话式写作 Agent）已完成：自由输入由 `agent/loop.py` 的 Agent 循环处理——模型自主决定
+是**聊天回答**还是调用工具（类比 Claude Code 在对话与写代码之间切换）；`agent/tools/` 提供
+基础工具集（读取 / 提取 / 编写 / 修改 / 保存 / 检查），可逐章交互式写作、随时口头修改。
 
 ## 使用 / Usage
 
@@ -29,14 +32,15 @@ Codex CLI / Claude Code 风格的**全屏聊天界面**：顶部两行状态栏�
 在 Windows 与非 TTY 回退终端中也可稳定显示。
 
 Enter 提交，Alt+Enter 换行，输入 `/` 会在输入栏正上方显示命令补全；首项默认选中但不会
-改写输入内容，按 Enter 直接执行选中项。PageUp/PageDown 浏览记录。自然语言
-由 LLM 做意图路由（如“把第二章重写得更紧张”直达重写），正文在会话区流式输出；生成期间
+改写输入内容，按 Enter 直接执行选中项。PageUp/PageDown 浏览记录。自由输入由
+v2 对话式 Agent 处理：闲聊/讨论剧情直接文本回答；写作/修改/查看等请求由模型自主决策并
+调用工具（如“把第二章重写得更紧张”触发重写工具），章节正文在会话区流式输出；生成期间
 输入自动锁定，但 `/new` 等流程等待用户回答时会恢复输入。非 TTY 环境自动回退到控制台 REPL。
 
 | 命令 | 说明 |
 |---|---|
 | `/new` | 开始新书：书名 / 剧情（或 `--plot-file`）/ 风格 |
-| `/write` | 写作当前书（实时进度 + 正文流式输出） |
+| `/write [N]` | 连续写作 N 章（默认 1，实时进度 + 正文流式输出） |
 | `/status` | 章节/字数/检查分数/剧情状态概览 |
 | `/style` | 查看当前风格锚点 |
 | `/checks` | 查看各章风格与剧情检查报告 |
@@ -64,7 +68,9 @@ Enter 提交，Alt+Enter 换行，输入 `/` 会在输入栏正上方显示命�
 多会话同时写作采用写前 reload 的乐观并发（后写覆盖）。全屏顶部状态栏显示当前会话名。
 
 自由输入（自然语言）示例：`帮我开一本新书叫《雾中城》`、`把第二章重写得更紧张`、
-`现在写到哪了`、`陈默后来叛变了`（=追加剧情）。
+`现在写到哪了`、`陈默后来叛变了`（Agent 会调用工具追加剧情）、`写第三第四两章吧`、
+`开头改成从雨夜开始，其余不要动`（触发定点修改）。Agent 信息不足时会主动提问澄清
+（书名、风格、主角等），也可以纯聊天讨论剧情设定而不动笔。
 
 ### Agent 配置
 
@@ -134,14 +140,16 @@ src/opennovel/
     style_profile.py  风格锚点：提取 / 锚点块 / 偏离检查（服务风格一致性）
     plot_state.py     剧情状态：增量更新 / 简报 / 一致性检查（服务剧情连贯性）
   agent/
-    orchestrator.py   write_novel：剧情 -> 大纲 -> 逐场景写作 -> 检查/重写 -> 状态更新
-    planning.py       章节/场景规划与写作/重写的 LLM 调用
-    intent.py         LLM 意图路由：自然语言 -> 命令
+    loop.py          v2 Agent 循环：模型自主决策聊天或调用工具（AgentTurn 协议）
+    context.py       背景注入：风格锚点 / 剧情简报 / 章节进度 + 会话历史窗口
+    tools/           基础工具集（@tool 注册）：读取 / 提取 / 编写 / 修改 / 保存 / 检查
+    orchestrator.py  批量成书：write_novel + 单章单元 write_one_chapter（工具复用）
+    planning.py      章节/场景规划与写作/重写/修改的 LLM 调用
   ui/
     app.py            全屏聊天应用：状态栏/会话区/输入区 + 键盘提示 footer，后台工作线程
     chat.py           聊天流：消息/流式正文/卡片 + rich→ANSI 桥接（ChatView）
     input.py          prompt_toolkit 输入：多行/历史/命令补全（共享 UI_STYLE 主题）
-    repl.py           控制台 REPL（非 TTY 回退）：/命令 + 意图路由分发
+    repl.py           控制台 REPL（非 TTY 回退）：/命令 + 自由文本进 Agent 循环
     display.py        rich 渲染：返回 renderable（面板/表格/检查报告）
     theme.py          共享终端视觉规范：配色 + prompt_toolkit 样式
   settings_store.py   用户配置：模型 profile + 全局生成参数（原子写/0600/掩码）
@@ -171,3 +179,4 @@ uv run opennovel       # 启动全屏聊天 UI
 - [x] 终端交互界面（rich REPL：/new /write /status /style /checks /rewrite + 流式输出）
 - [x] 聊天式界面（prompt_toolkit 输入 + LLM 意图路由，Claude Code 风格）
 - [x] 全屏聊天界面（Codex CLI / Claude Code 风格状态栏、会话区与固定输入区）
+- [x] v2 对话式写作 Agent（Agent 循环 + 基础工具集：读取/提取/编写/修改/保存/检查，意图自决）

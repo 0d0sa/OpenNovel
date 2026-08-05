@@ -1,6 +1,13 @@
 """Core data models: Novel, Chapter, Scene, Character."""
 
-from opennovel.models.novel import Chapter, Character, Novel, Scene, SceneStatus
+from opennovel.models.novel import (
+    Chapter,
+    ChapterPlan,
+    Character,
+    Novel,
+    Scene,
+    SceneStatus,
+)
 from opennovel.models.storage import (
     default_novel_path,
     load_novel,
@@ -10,6 +17,7 @@ from opennovel.models.storage import (
 
 __all__ = [
     "Chapter",
+    "ChapterPlan",
     "Character",
     "Novel",
     "Scene",

@@ -464,12 +464,11 @@ def test_chat_view_escapes_user_markup():
     assert view.messages[0][1] == "你好[dim]世界"
 
 
-def test_route_other_strips_llm_markup(make_session):
-    from opennovel.agent import IntentKind
+def test_free_text_reply_renders_markup_literally(make_session):
     from opennovel.llm import FakeProvider
 
     provider = FakeProvider(
-        replies=[FakeProvider.json_reply({"kind": "other", "chapter_no": 0, "suggestion": "[dim]（您好！）[/dim]"})]
+        replies=[FakeProvider.json_reply({"type": "text", "content": "（您好！）"})]
     )
     session = make_session(provider)
     session.title, session.plot = "雾中城", "剧情"

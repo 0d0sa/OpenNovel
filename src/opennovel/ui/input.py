@@ -17,7 +17,7 @@ from opennovel.ui.theme import UI_STYLE
 
 COMMANDS = [
     ("new", "开始一本新书（书名 / 剧情 / 风格）"),
-    ("write", "写作当前这本书"),
+    ("write", "连续写作 N 章，如 /write 2（默认 1 章）"),
     ("status", "当前书概览"),
     ("style", "查看风格锚点"),
     ("checks", "查看各章检查报告"),

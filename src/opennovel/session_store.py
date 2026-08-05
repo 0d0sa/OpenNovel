@@ -30,7 +30,7 @@ class SessionRecord(BaseModel):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def sessions_dir(novel_title: str, base_dir: Path = Path("novels")) -> Path:
@@ -51,7 +51,7 @@ def list_sessions(novel_title: str, base_dir: Path = Path("novels")) -> list[Ses
                 records.append(SessionRecord.model_validate_json(file.read_text(encoding="utf-8")))
             except Exception:
                 continue
-    records.sort(key=lambda r: r.updated_at, reverse=True)
+    records.sort(key=lambda r: (r.updated_at, r.id), reverse=True)
     return records
 
 

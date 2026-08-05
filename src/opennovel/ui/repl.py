@@ -1,9 +1,10 @@
 """Chat-style interactive session (Claude Code like).
 
 `opennovel` with no subcommand enters. `/` commands and free-text prompts are
-both accepted in the same input box; free text goes through LLM intent routing
-(`agent/intent.py`). Command dispatch stays in `handle_command` (pure-ish,
-testable without a terminal).
+both accepted in the same input box; free text goes through the v2 agent loop
+(`agent/loop.py`), where the model itself decides to chat or call tools.
+Command dispatch stays in `handle_command` (pure-ish, testable without a
+terminal).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from opennovel.agent import IntentKind, classify_intent, write_novel
+from opennovel.agent import ToolContext, ToolError, run_tool, run_turn
 from opennovel.config import Settings
 from opennovel.llm import Provider
 from opennovel.models import Scene, SceneStatus, save_novel
@@ -198,7 +199,7 @@ def handle_command(session: Session, line: str) -> bool:
         elif cmd == "/new":
             _cmd_new(session, args)
         elif cmd == "/write":
-            _cmd_write(session)
+            _cmd_write(session, args)
         elif cmd == "/status":
             session.show_status()
         elif cmd == "/style":
@@ -218,7 +219,7 @@ def handle_command(session: Session, line: str) -> bool:
         else:
             session.say(f"[red]未知命令：{cmd}（/help 查看可用命令）[/red]")
     else:
-        _route_free_text(session, line)
+        _run_agent_turn(session, line)
     session.persist_chat()
     return True
 
@@ -236,32 +237,50 @@ def _split_command(line: str) -> list[str]:
     return parts
 
 
-def _route_free_text(session: Session, line: str) -> None:
-    intent = classify_intent(session.provider, line)
-    kind = intent.kind
-    if kind == IntentKind.REWRITE_CHAPTER and intent.chapter_no >= 1:
-        _cmd_rewrite(session, [str(intent.chapter_no)])
-    elif kind == IntentKind.START_NEW:
-        _cmd_new(session, [])
-    elif kind == IntentKind.WRITE_NOW:
-        _cmd_write(session)
-    elif kind == IntentKind.STATUS:
-        session.show_status()
-    elif kind == IntentKind.CHECKS:
-        session.show_checks()
-    elif kind == IntentKind.HELP:
-        session.show_help()
-    else:  # append_plot / other
-        if kind == IntentKind.OTHER and intent.suggestion:
-            session.say(f"（{_plain(intent.suggestion)}）")
-        _append_plot(session, line)
+def _run_agent_turn(session: Session, line: str) -> None:
+    """v2: free text goes straight to the agent loop (chat or tool calls)."""
+    ctx = _tool_context(session)
+    history = _agent_history(session)
+    run_turn(
+        ctx,
+        history,
+        line,
+        on_agent_text=lambda text: session.chat.add_assistant(text),
+        on_stage=lambda text: session.chat.add_system(session.chat.stage_panel(text)),
+    )
+    _sync_ctx(session, ctx)
 
 
-def _plain(text: str) -> str:
-    """Strip rich-markup-like [tag] tokens (LLM output safety)."""
-    import re
+def _tool_context(session: Session) -> ToolContext:
+    """Build the per-turn tool context from the session state."""
+    return ToolContext(
+        provider=session.provider,
+        settings=session.settings,
+        title=session.title,
+        plot=session.plot,
+        style_hint=session.style_hint,
+        novel=session.novel,
+        on_progress=session.say,
+        on_stage=lambda text: session.chat.add_system(session.chat.stage_panel(text)),
+        on_token_start=session.chat.begin_stream,
+        on_token=session.chat.feed,
+        on_token_end=session.chat.end_stream,
+    )
 
-    return re.sub(r"\[/?[a-zA-Z_][a-zA-Z0-9_]*\]", "", text)
+
+def _agent_history(session: Session) -> list[tuple[str, str]]:
+    """Chat history for the loop; the just-submitted user message is passed
+    separately as `user_text`, so drop a trailing user entry."""
+    messages = list(getattr(session.chat, "messages", []))
+    if messages and messages[-1][0] == "user":
+        messages = messages[:-1]
+    return messages
+
+
+def _sync_ctx(session: Session, ctx: ToolContext) -> None:
+    """Copy back state the tools may have created/replaced."""
+    session.novel = ctx.novel
+    session.plot = ctx.plot
 
 
 def _cmd_setting(session: Session, args: list[str]) -> None:
@@ -526,14 +545,6 @@ def _cmd_model(session: Session, args: list[str]) -> None:
     session.say(f"[green]已切换到 {profile.name}（{profile.model}）[/green]")
 
 
-def _append_plot(session: Session, line: str) -> None:
-    if not session.plot:
-        session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
-        return
-    session.plot = session.plot.rstrip() + "\n" + line
-    session.say("[dim]已追加到剧情[/dim]")
-
-
 def _cmd_new(session: Session, args: list[str]) -> None:
     title = ""
     plot_file = None
@@ -587,31 +598,27 @@ def _cmd_new(session: Session, args: list[str]) -> None:
     session.say("[dim]聊天输入可理解为自然语言指令（如“把第二章重写得更紧张”）[/dim]")
 
 
-def _cmd_write(session: Session) -> None:
+def _cmd_write(session: Session, args: list[str]) -> None:
+    """v2: /write [N] — 连续写作 N 章（默认 1），经 continue_writing 工具。"""
+    count = 1
+    if args:
+        try:
+            count = int(args[0])
+        except ValueError:
+            session.say("[red]章节数必须是数字，如 /write 3[/red]")
+            return
     if not session.plot:
         session.say("[yellow]还没有开始新书，先 /new 创建[/yellow]")
         return
     session.ensure_fresh_novel()  # 乐观并发：写前重载 disk 最新版
-
-    def on_stage(stage: str) -> None:
-        session.chat.add_system(session.chat.stage_panel(stage))
-
-    session.chat.begin_stream()
-    novel = write_novel(
-        session.provider,
-        session.settings,
-        session.title,
-        session.plot,
-        session.style_hint,
-        on_progress=session.say,
-        on_stage=on_stage,
-        on_token=session.chat.feed,
-    )
-    session.chat.end_stream()
-    session.novel = novel
-    session.chat.add_system(session.chat.summary_card(novel))
-    path = session.settings.output_dir / novel.title / "novel.json"
-    session.say(f"[dim]成书：{path}（/checks 查看检查报告）[/dim]")
+    ctx = _tool_context(session)
+    try:
+        result = run_tool("continue_writing", {"chapters": count}, ctx)
+    except ToolError as exc:
+        session.say(f"[red]{exc}[/red]")
+        return
+    _sync_ctx(session, ctx)
+    session.say(f"[green]{result.summary}[/green]")
 
 
 def _cmd_rewrite(session: Session, args: list[str]) -> None:

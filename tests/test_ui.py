@@ -45,7 +45,14 @@ def test_exit_command(make_session):
 
 
 def test_free_text_requires_new_book_first(make_session):
-    session = make_session()
+    provider = FakeProvider(
+        replies=[
+            FakeProvider.json_reply(
+                {"type": "text", "content": "还没有书，请先 /new 创建，或直接告诉我书名和剧情。"}
+            )
+        ]
+    )
+    session = make_session(provider)
     handle_command(session, "加一段剧情")
     assert "先 /new" in session.console.file.getvalue()
 
@@ -86,6 +93,20 @@ def test_new_sets_up_plot_and_append(make_session):
     assert session.title == "雾中城"
     assert session.plot == "少年进城找妹妹"
     assert session.style_hint == "冷峻"
+    # v2: free text goes through the agent loop; the model decides to append
+    provider = FakeProvider(
+        replies=[
+            FakeProvider.json_reply(
+                {
+                    "type": "tool_call",
+                    "content": "我把这段补进剧情。",
+                    "tool_call": {"tool": "append_plot", "arguments": {"text": "他遇到了老警察。"}},
+                }
+            ),
+            FakeProvider.json_reply({"type": "text", "content": "已补充。"}),
+        ]
+    )
+    session.provider = provider
     handle_command(session, "他遇到了老警察。")
     assert "老警察" in session.plot
     assert "已追加到剧情" in session.console.file.getvalue()

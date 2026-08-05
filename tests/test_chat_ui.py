@@ -1,11 +1,10 @@
-"""Tests for chat UI: intent routing, chat stream, input completion."""
+"""Tests for chat UI: agent-loop free text, chat stream, input completion."""
 
 from io import StringIO
 
 from prompt_toolkit.document import Document
 from rich.console import Console
 
-from opennovel.agent import IntentKind, classify_intent
 from opennovel.llm import FakeProvider
 from opennovel.models import Chapter, Novel, Scene, SceneStatus
 from opennovel.ui.chat import ChatStream
@@ -13,36 +12,18 @@ from opennovel.ui.input import CommandCompleter
 from opennovel.ui.repl import handle_command
 
 
-def intent_reply(kind: str, chapter_no: int = 0, suggestion: str = "") -> str:
+def text_turn(content: str) -> str:
+    return FakeProvider.json_reply({"type": "text", "content": content})
+
+
+def tool_turn(tool_name: str, arguments: dict, content: str = "") -> str:
     return FakeProvider.json_reply(
-        {"kind": kind, "chapter_no": chapter_no, "suggestion": suggestion}
+        {
+            "type": "tool_call",
+            "content": content,
+            "tool_call": {"tool": tool_name, "arguments": arguments},
+        }
     )
-
-
-def test_classify_start_new():
-    provider = FakeProvider(replies=[intent_reply("start_new")])
-    intent = classify_intent(provider, "帮我开一本新书，叫雾中城")
-    assert intent.kind == IntentKind.START_NEW
-
-
-def test_classify_rewrite_with_chapter():
-    provider = FakeProvider(replies=[intent_reply("rewrite_chapter", chapter_no=2)])
-    intent = classify_intent(provider, "把第二章重写得更紧张")
-    assert intent.kind == IntentKind.REWRITE_CHAPTER
-    assert intent.chapter_no == 2
-
-
-def test_classify_fallback_to_append_on_failure():
-    provider = FakeProvider()  # no replies -> structured parse fails
-    intent = classify_intent(provider, "随便什么话")
-    assert intent.kind == IntentKind.APPEND_PLOT
-
-
-def test_classify_all_kinds():
-    for kind in IntentKind:
-        provider = FakeProvider(replies=[intent_reply(kind.value)])
-        intent = classify_intent(provider, "x")
-        assert intent.kind == kind
 
 
 def test_chat_stream_echoes_and_streams():
@@ -101,36 +82,47 @@ def test_chat_input_bindings_construct():
     assert ("escape", "c-m") in names  # Meta+Enter newline
 
 
-def test_free_text_routes_rewrite_intent(make_session, tmp_path):
-    from opennovel.memory import PlotConsistency, StyleDeviation
-
-    provider = FakeProvider(replies=[intent_reply("rewrite_chapter", chapter_no=1), "重写后的正文"])
+def test_free_text_routes_rewrite_tool(make_session):
+    provider = FakeProvider(
+        replies=[
+            tool_turn("rewrite_chapter", {"chapter_no": 1}, "我来重写第一章"),
+            "重写后的正文",
+            text_turn("已重写完成"),
+        ]
+    )
     session = make_session(provider)
+    session.title = "雾中城"
+    session.plot = "剧情"
     session.novel = Novel(
         title="雾中城",
+        plot="剧情",
         chapters=[
             Chapter(
                 title="夜雨",
                 scenes=[Scene(summary="s", content="旧正文", status=SceneStatus.WRITTEN)],
-                style_report=StyleDeviation(score=2, deviations=[], suggestion=""),
             )
         ],
     )
     handle_command(session, "把第一章重写得更紧张")
     assert session.novel.chapters[0].scenes[0].content == "重写后的正文"
+    assert "已重写完成" in session.console.file.getvalue()
 
 
-def test_free_text_routes_status_intent(make_session):
-    provider = FakeProvider(replies=[intent_reply("status")])
+def test_free_text_routes_status_tool(make_session):
+    provider = FakeProvider(
+        replies=[tool_turn("read_status", {}), text_turn("进度如上。")]
+    )
     session = make_session(provider)
-    session.novel = Novel(title="雾中城", chapters=[Chapter(title="夜雨")])
+    session.title = "雾中城"
+    session.novel = Novel(title="雾中城", plot="剧情", chapters=[Chapter(title="夜雨")])
     handle_command(session, "现在写到哪了")
-    assert "夜雨" in session.console.file.getvalue()
-    assert "已追加到剧情" not in session.console.file.getvalue()
+    out = session.console.file.getvalue()
+    assert "夜雨" in out
+    assert "进度如上" in out
 
 
-def test_free_text_append_when_no_book(make_session):
-    provider = FakeProvider(replies=[intent_reply("append_plot")])
+def test_free_text_chat_reply_when_no_book(make_session):
+    provider = FakeProvider(replies=[text_turn("还没有书，先 /new 创建，或直接告诉我书名和剧情。")])
     session = make_session(provider)
     handle_command(session, "加一段剧情")
     assert "先 /new" in session.console.file.getvalue()

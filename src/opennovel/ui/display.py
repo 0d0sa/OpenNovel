@@ -63,7 +63,7 @@ def help_table() -> Table:
     table.add_column("说明", style=MUTED)
     for cmd, desc in (
         ("/new", "开始一本新书（书名 / 剧情 / 风格）"),
-        ("/write", "写作当前这本书"),
+        ("/write [N]", "连续写作 N 章（默认 1，实时进度 + 正文流式输出）"),
         ("/status", "当前书概览：章节数 / 各章字数 / 剧情状态"),
         ("/style", "查看当前风格锚点"),
         ("/checks", "查看各章检查报告"),

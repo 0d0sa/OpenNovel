@@ -12,7 +12,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from opennovel.llm import ChatMessage, CompletionRequest, Provider
-from opennovel.models import Scene
+from opennovel.models import ChapterPlan, Scene
 
 PLAN_CHAPTERS_SYSTEM = """你是小说大纲规划师。根据用户剧情生成章节列表：
 - title：章节标题（简洁有韵味）
@@ -35,13 +35,10 @@ REWRITE_SYSTEM = """你是修订编辑。根据检查意见重写章节正文：
 - 保留剧情推进与场景顺序，不要偏离原大纲
 - 输出重写后的完整章节正文，只输出正文本身"""
 
-
-class ChapterPlan(BaseModel):
-    """One chapter in the book outline."""
-
-    title: str = Field(description="章节标题")
-    focus: str = Field(default="", description="本章核心冲突或进展，一句话")
-    scene_count: int = Field(default=3, ge=1, le=6, description="本章场景数，建议 2-4")
+EDIT_SYSTEM = """你是小说修订编辑。根据【用户指示】对章节正文做定点修改：
+- 只改动指示要求的部分，其余内容必须原样保留（包括段落顺序与措辞）
+- 不得改变剧情走向与已确立事实，不得重写无关段落
+- 输出修改后的完整章节正文，只输出正文本身"""
 
 
 class ChapterPlanList(BaseModel):
@@ -123,10 +120,18 @@ def rewrite_chapter(
     style_deviation,
     plot_consistency,
     style_anchor: str,
+    *,
+    instructions: str = "",
     stream_callback=None,
 ) -> str:
-    """One rewrite pass driven by the check reports. Returns new text."""
+    """One rewrite pass driven by the check reports. Returns new text.
+
+    `instructions` carries user-facing edit requests (e.g. "更紧张些"),
+    prepended to the check reports so the model honors them on top of fixes.
+    """
     report: list[str] = []
+    if instructions.strip():
+        report.append(f"【用户指示】\n{instructions.strip()}")
     if style_deviation is not None:
         lines = [f"【风格检查】偏离度 {style_deviation.score}", *style_deviation.deviations]
         if style_deviation.suggestion:
@@ -146,6 +151,31 @@ def rewrite_chapter(
                     f"风格锚点：\n{style_anchor}\n\n检查报告：\n"
                     + "\n\n".join(report)
                     + f"\n\n【待重写章节原文】\n{chapter_text}"
+                ),
+            ),
+        ]
+    )
+    return _collect_stream(provider, request, stream_callback)
+
+
+def edit_chapter(
+    provider: Provider,
+    chapter_text: str,
+    instructions: str,
+    style_anchor: str,
+    plot_brief: str = "",
+    stream_callback=None,
+) -> str:
+    """Targeted edit of a chapter (one call): only the instructed parts
+    change, everything else must stay verbatim."""
+    request = CompletionRequest(
+        messages=[
+            ChatMessage(role="system", content=EDIT_SYSTEM),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"风格锚点：\n{style_anchor}\n\n剧情简报：\n{plot_brief or '（无）'}\n\n"
+                    f"【用户指示】\n{instructions}\n\n【待修改章节原文】\n{chapter_text}"
                 ),
             ),
         ]
