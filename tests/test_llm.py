@@ -134,7 +134,7 @@ def test_real_completion_smoke():
     response = provider.complete(
         CompletionRequest(
             messages=[ChatMessage(role="user", content="回复 OK")],
-            max_tokens=128,  # reasoning models need headroom beyond the reasoning budget
+            max_tokens=256,  # reasoning models need headroom beyond the reasoning budget
         )
     )
     assert response.text
