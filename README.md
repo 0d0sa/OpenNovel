@@ -17,6 +17,9 @@ MVP 完成：`models/`（Pydantic v2 + JSON 持久化）、`llm/`（openai SDK �
 v2（对话式写作 Agent）已完成：自由输入由 `agent/loop.py` 的 Agent 循环处理——模型自主决定
 是**聊天回答**还是调用工具（类比 Claude Code 在对话与写代码之间切换）；`agent/tools/` 提供
 基础工具集（读取 / 提取 / 编写 / 修改 / 保存 / 检查），可逐章交互式写作、随时口头修改。
+记忆 v2（三层记忆）已完成：L0 常驻简报（待回收伏笔完整注入）+ L1 章节摘要索引 + L2 全文
+检索（`search_memory`）；剧情状态合并升级为 LLM 关系标注 + Python 确定性执行（事件去重、
+伏笔语义回收）；记忆与正文分离存储（`novels/<title>/memory.json`），旧书自动迁移。
 
 ## 使用 / Usage
 
@@ -130,18 +133,22 @@ src/opennovel/
   cli.py            CLI 入口（交互模式 + write 批量成书）
   config.py         应用配置：从 /setting 持久化数据构建 Settings
   models/
-    novel.py        数据模型：Novel（聚合根）/ Chapter / Scene / Character
-    storage.py      JSON 持久化（每书一个 novels/<title>/novel.json）
+    novel.py          数据模型：Novel（正文聚合根）/ Chapter / Scene / Character
+    memory.py         记忆聚合根 NovelMemory（风格 + 剧情状态 + 章节摘要）
+    memory_store.py   memory.json 原子读写 + 旧书迁移
+    storage.py        novel.json 持久化（每书一个 novels/<title>/novel.json）
   llm/
     types.py        消息/请求/响应类型（ChatMessage/CompletionRequest/CompletionResponse）
     provider.py     Provider 抽象基类 + OpenAI 兼容实现 + FakeProvider（测试用）
     registry.py     工厂：从 active 模型配置构建 Provider
   memory/
     style_profile.py  风格锚点：提取 / 锚点块 / 偏离检查（服务风格一致性）
-    plot_state.py     剧情状态：增量更新 / 简报 / 一致性检查（服务剧情连贯性）
+    plot_state.py     剧情状态：关系化增量合并 / 章节摘要 / 简报 / 一致性检查
+    retrieval.py      L2 全文检索：句子切分 + 子串匹配 + 角色词典（零依赖）
+    summary.py        写前简报校验：锚点 + 完整伏笔 + 摘要与 hook 组装
   agent/
     loop.py          v2 Agent 循环：模型自主决策聊天或调用工具（AgentTurn 协议）
-    context.py       背景注入：风格锚点 / 剧情简报 / 章节进度 + 会话历史窗口
+    context.py       背景注入：风格锚点 / 伏笔 / 剧情简报 / 摘要索引 / 章节进度 + 历史窗口
     tools/           基础工具集（@tool 注册）：读取 / 提取 / 编写 / 修改 / 保存 / 检查
     orchestrator.py  批量成书：write_novel + 单章单元 write_one_chapter（工具复用）
     planning.py      章节/场景规划与写作/重写/修改的 LLM 调用
@@ -180,3 +187,4 @@ uv run opennovel       # 启动全屏聊天 UI
 - [x] 聊天式界面（prompt_toolkit 输入 + LLM 意图路由，Claude Code 风格）
 - [x] 全屏聊天界面（Codex CLI / Claude Code 风格状态栏、会话区与固定输入区）
 - [x] v2 对话式写作 Agent（Agent 循环 + 基础工具集：读取/提取/编写/修改/保存/检查，意图自决）
+- [x] 记忆 v2（三层记忆：常驻简报 + 章节摘要索引 + 全文检索；关系化合并；正文与记忆分离）

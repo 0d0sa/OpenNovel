@@ -26,9 +26,18 @@ from opennovel.memory import (
     extract_style_profile,
     plot_state_brief,
     style_anchor_block,
+    update_memory,
     update_plot_state,
 )
-from opennovel.models import Chapter, Novel, Scene, SceneStatus, save_novel
+from opennovel.models import (
+    Chapter,
+    Novel,
+    NovelMemory,
+    Scene,
+    SceneStatus,
+    save_memory,
+    save_novel,
+)
 
 REWRITE_THRESHOLD = 3
 TAIL_CHARS = 200
@@ -58,7 +67,7 @@ def write_novel(
         on_stage("提取风格锚点")
     profile = extract_style_profile(provider, plot, style_hint)
     novel = Novel(title=title, plot=plot, style_profile=profile)
-    anchor = style_anchor_block(profile)
+    memory = NovelMemory(style_profile=profile)
 
     if on_stage:
         on_stage("规划全书大纲")
@@ -76,12 +85,15 @@ def write_novel(
             novel,
             idx,
             plan,
+            memory=memory,
             on_progress=on_progress,
             on_stage=on_stage,
             on_token=on_token,
         )
         novel.chapters.append(chapter)
+        novel.plot_state = memory.plot_state  # novel.json 保持兼容（真源在 memory.json）
         save_novel(novel, settings.output_dir / novel.title / "novel.json")
+        save_memory(memory, settings.output_dir / novel.title / "memory.json")
         if on_progress:
             on_progress(f"第{idx}章完成：{plan.title}")
 
@@ -97,17 +109,20 @@ def write_one_chapter(
     plan: ChapterPlan,
     *,
     scenes: list[Scene] | None = None,
+    memory: NovelMemory | None = None,
     on_progress=None,
     on_stage=None,
     on_token=None,
 ) -> Chapter:
     """Write one chapter (plan scenes -> write scenes -> checks -> update
-    plot state). Mutates `novel.plot_state`; persistence is up to the caller.
+    memory). Mutates `memory.plot_state`/`memory.chapter_summaries` (or
+    `novel.plot_state` when memory is None); persistence is up to the caller.
 
     Pass pre-planned `scenes` (status PLANNED) to skip the planning call.
     """
     anchor = style_anchor_block(novel.style_profile)
-    brief = plot_state_brief(novel.plot_state)
+    state = memory.plot_state if memory is not None else novel.plot_state
+    brief = plot_state_brief(state)
     if scenes is None:
         if on_stage:
             on_stage(f"第{chapter_no}章 规划场景")
@@ -143,7 +158,7 @@ def write_one_chapter(
     if settings.plot_check:
         if on_stage:
             on_stage(f"第{chapter_no}章 剧情一致性检查")
-        plot_cons = check_plot_consistency(provider, novel.plot_state, chapter_text, chapter_no)
+        plot_cons = check_plot_consistency(provider, state, chapter_text, chapter_no)
     if (
         style_dev is not None and style_dev.score >= REWRITE_THRESHOLD
     ) or (plot_cons is not None and plot_cons.score >= REWRITE_THRESHOLD):
@@ -163,8 +178,16 @@ def write_one_chapter(
         ]
 
     if on_stage:
-        on_stage(f"第{chapter_no}章 更新剧情状态")
-    novel.plot_state = update_plot_state(provider, chapter_text, chapter_no, novel.plot_state)
+        on_stage(f"第{chapter_no}章 更新剧情状态与摘要")
+    if memory is not None:
+        memory.plot_state, summary = update_memory(
+            provider, chapter_text, chapter_no, memory.plot_state, chapter_title=plan.title
+        )
+        if summary is not None:
+            memory.chapter_summaries.append(summary)
+        novel.plot_state = memory.plot_state  # novel.json 兼容同步
+    else:
+        novel.plot_state = update_plot_state(provider, chapter_text, chapter_no, novel.plot_state)
     return Chapter(
         title=plan.title,
         outline=plan.focus,

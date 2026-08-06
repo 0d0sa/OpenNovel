@@ -53,6 +53,23 @@ def ok_update_reply() -> str:
     )
 
 
+def ok_update_reply_with_summary() -> str:
+    return FakeProvider.json_reply(
+        {
+            "new_characters": [{"name": "林晚", "role": "主角", "facts": ["来自山南镇"]}],
+            "events": [],
+            "new_setups": [],
+            "resolved_setups": [],
+            "chapter_summary": {
+                "overview": "林晚雨夜进城",
+                "events": ["车站相遇"],
+                "new_characters": ["林晚"],
+                "hook": "拆开那封信",
+            },
+        }
+    )
+
+
 def seeded_novel(**kwargs) -> Novel:
     novel = Novel(title="雾中城", plot="少年进城找妹妹。", **kwargs)
     novel.style_profile = StyleProfile(
@@ -386,3 +403,99 @@ def test_check_tools_write_reports(tmp_path):
     result = run_tool("check_plot", {"chapter_no": 1}, ctx)
     assert "0/5" in result.summary
     assert ctx.novel.chapters[0].plot_report is not None
+
+
+# --- 记忆 v2：memory.json / 摘要 / 检索 / 写前简报 ---
+
+
+def test_write_chapter_writes_memory_file_with_summary(tmp_path):
+    novel = seeded_novel()
+    provider = FakeProvider(
+        replies=[
+            scenes_reply("雨夜下车"),
+            "正文内容。",
+            ok_style_reply(),
+            ok_plot_reply(),
+            ok_update_reply_with_summary(),
+        ]
+    )
+    ctx = make_ctx(provider, tmp_path, novel=novel)
+    run_tool("write_chapter", {"chapter_no": 0}, ctx)
+    from opennovel.models import load_memory, load_novel
+
+    assert (tmp_path / "雾中城" / "memory.json").exists()
+    memory = load_memory("雾中城", tmp_path)
+    assert memory is not None
+    assert len(memory.chapter_summaries) == 1
+    assert memory.chapter_summaries[0].overview == "林晚雨夜进城"
+    assert memory.chapter_summaries[0].chapter_no == 1
+    assert memory.chapter_summaries[0].title == "夜雨"
+    assert memory.plot_state.characters["林晚"].role == "主角"
+    # novel.json 兼容同步
+    saved = load_novel(tmp_path / "雾中城" / "novel.json")
+    assert saved.plot_state.characters["林晚"].role == "主角"
+
+
+def test_search_memory_tool(tmp_path):
+    novel = Novel(
+        title="雾中城",
+        plot="剧情",
+        chapters=[
+            Chapter(
+                title="夜雨",
+                scenes=[
+                    Scene(
+                        summary="s",
+                        content="雨下了一夜，林晚在车站遇到了陈默。",
+                        status=SceneStatus.WRITTEN,
+                    )
+                ],
+            )
+        ],
+    )
+    ctx = make_ctx(FakeProvider(), tmp_path, novel=novel)
+    result = run_tool("search_memory", {"query": "陈默"}, ctx)
+    assert "[第1章]" in result.summary
+    assert "陈默" in result.summary
+    result = run_tool("search_memory", {"query": "不存在的词"}, ctx)
+    assert "未找到" in result.summary
+
+
+def test_read_summary_tool(tmp_path):
+    from opennovel.memory.plot_state import ChapterSummary
+    from opennovel.models import NovelMemory, save_memory
+
+    novel = Novel(title="雾中城", plot="剧情")
+    memory = NovelMemory()
+    memory.chapter_summaries.append(
+        ChapterSummary(chapter_no=1, title="夜雨", overview="进城", hook="拆信")
+    )
+    save_memory(memory, tmp_path / "雾中城" / "memory.json")
+    ctx = make_ctx(FakeProvider(), tmp_path, novel=novel)
+    out = run_tool("read_summary", {"chapter_no": 0}, ctx).summary
+    assert "夜雨" in out and "拆信" in out
+    out = run_tool("read_summary", {"chapter_no": 1}, ctx).summary
+    assert "概述：进城" in out and "续写提示：拆信" in out
+    with pytest.raises(ToolError, match="摘要"):
+        run_tool("read_summary", {"chapter_no": 3}, ctx)
+
+
+def test_build_writing_brief_prioritizes_setups_and_hooks():
+    from opennovel.memory import SetupRecord, StyleProfile, build_writing_brief
+    from opennovel.memory.plot_state import ChapterSummary
+    from opennovel.models import NovelMemory
+
+    memory = NovelMemory()
+    memory.style_profile = StyleProfile(tone="冷峻", sample_passage="雨落了一夜。")
+    memory.plot_state.setups.append(SetupRecord(description="站台的信", chapter=1))
+    memory.chapter_summaries.append(
+        ChapterSummary(chapter_no=1, title="夜雨", overview="进城", hook="拆信")
+    )
+    novel = Novel(title="雾中城", plot="剧情")
+    brief = build_writing_brief(memory, novel, chapter_no=2)
+    assert "站台的信" in brief  # 待回收伏笔完整
+    assert "拆信" in brief  # 上一章 hook
+    assert "冷峻" in brief  # 风格锚点
+    # 下一章不受之前章节摘要影响（chapter_no=2 只带第1章）
+    brief_next = build_writing_brief(memory, novel, chapter_no=5)
+    assert "拆信" in brief_next

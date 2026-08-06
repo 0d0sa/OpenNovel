@@ -17,7 +17,7 @@ from pydantic import create_model
 
 from opennovel.config import Settings
 from opennovel.llm import Provider
-from opennovel.models import Novel
+from opennovel.models import Novel, NovelMemory
 
 
 class ToolError(RuntimeError):
@@ -42,6 +42,7 @@ class ToolContext:
     plot: str = ""
     style_hint: str = ""
     novel: Novel | None = None
+    memory: NovelMemory | None = None
     on_progress: object | None = None
     on_stage: object | None = None
     on_token_start: object | None = None
@@ -74,6 +75,41 @@ class ToolContext:
         if self.novel is None:
             raise ToolError("还没有开始任何书，先 /new 创建或直接告诉我书名与剧情")
         return save_novel(self.novel, self.novel_path())
+
+    def memory_path(self) -> Path:
+        return self.settings.output_dir / self.title / "memory.json"
+
+    def fresh_memory(self) -> NovelMemory | None:
+        """Get the per-novel memory (reload from disk when present). Creates
+        it on first access, migrating style/plot state out of novel.json.
+
+        Never replaces `self.novel`: the migration reads the already-loaded
+        novel (or loads one only when none is held), so tools that fetched a
+        novel earlier keep the object they will mutate and save."""
+        if not self.title:
+            return None
+        from opennovel.models import load_memory, save_memory
+
+        memory = load_memory(self.title, self.settings.output_dir)
+        if memory is None:
+            novel = self.novel
+            if novel is None:
+                novel = self.fresh_novel()
+            memory = NovelMemory()
+            if novel is not None:
+                memory.style_profile = novel.style_profile
+                memory.plot_state = novel.plot_state
+            save_memory(memory, self.memory_path())
+        self.memory = memory
+        return memory
+
+    def save_memory(self) -> Path:
+        """Persist the per-novel memory. Raises when none was loaded."""
+        from opennovel.models import save_memory
+
+        if self.memory is None:
+            raise ToolError("记忆尚未初始化（fresh_memory 后才能保存）")
+        return save_memory(self.memory, self.memory_path())
 
 
 @dataclass

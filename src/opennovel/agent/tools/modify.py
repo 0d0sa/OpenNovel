@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from opennovel.agent.planning import edit_chapter, rewrite_chapter
 from opennovel.agent.tools import ToolContext, ToolError, ToolResult, tool
-from opennovel.memory import plot_state_brief, style_anchor_block
+from opennovel.memory import build_writing_brief
 from opennovel.models import Novel, Scene, SceneStatus
 
 
@@ -25,6 +25,11 @@ def _chapter_text(novel: Novel, chapter_no: int, need_content: bool = True) -> t
     return chapter, text
 
 
+def _context_block(ctx: ToolContext, novel: Novel, chapter_no: int) -> str:
+    """写前简报校验：锚点 + 待回收伏笔 + 简报 + 最近章节摘要与 hook。"""
+    return build_writing_brief(ctx.fresh_memory(), novel, chapter_no=chapter_no)
+
+
 @tool("rewrite_chapter", "按用户指示（可选）与既有检查报告整章重写", category="修改")
 def rewrite_chapter_tool(ctx: ToolContext, chapter_no: int, instructions: str = "") -> ToolResult:
     novel = _book(ctx)
@@ -39,7 +44,7 @@ def rewrite_chapter_tool(ctx: ToolContext, chapter_no: int, instructions: str = 
             text,
             chapter.style_report,
             chapter.plot_report,
-            style_anchor_block(novel.style_profile),
+            _context_block(ctx, novel, chapter_no),
             instructions=instructions,
             stream_callback=ctx.on_token,
         )
@@ -68,8 +73,7 @@ def edit_chapter_tool(ctx: ToolContext, chapter_no: int, instructions: str) -> T
             ctx.provider,
             text,
             instructions,
-            style_anchor_block(novel.style_profile),
-            plot_brief=plot_state_brief(novel.plot_state),
+            _context_block(ctx, novel, chapter_no),
             stream_callback=ctx.on_token,
         )
     finally:

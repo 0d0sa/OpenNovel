@@ -1,9 +1,8 @@
 """Background context and conversation history assembly for the agent loop.
 
 The two non-negotiable quality requirements (语言风格一致性 / 剧情连贯性)
-are enforced here at the context level: the style anchor block and the plot
-state brief are injected every turn, regardless of what tools the model
-decides to call.
+are enforced here at the context level: style anchor + complete open setups
++ priority-compressed brief + chapter summary index are injected every turn.
 """
 
 from __future__ import annotations
@@ -22,17 +21,30 @@ def build_background(ctx: ToolContext) -> str:
         lines.append("- 还没有开始任何书。用户提出新故事时，先确认书名与剧情，再创建。")
     else:
         novel = ctx.fresh_novel()
+        memory = ctx.fresh_memory()
         lines.append(f"- 书名：{ctx.title}")
         if novel is None:
             lines.append("- 书已创建但尚无内容（剧情保存在剧情文本中）")
         else:
-            if novel.style_profile and novel.style_profile.tone:
+            profile = memory.style_profile if memory is not None else novel.style_profile
+            if profile and profile.tone:
                 lines.append("- 风格档案（写作必须遵守）：")
-                lines.append(style_anchor_block(novel.style_profile))
-            brief = plot_state_brief(novel.plot_state, max_chars=600)
+                lines.append(style_anchor_block(profile))
+            state = memory.plot_state if memory is not None else novel.plot_state
+            open_setups = [s for s in state.setups if s.resolved_in is None]
+            if open_setups:
+                lines.append("- 待回收伏笔（完整，不得提前揭露）：")
+                for setup in open_setups:
+                    lines.append(f"  - {setup.description}")
+            brief = plot_state_brief(state, max_chars=600, include_setups=False)
             if brief:
                 lines.append("- 剧情简报：")
                 lines.append(brief)
+            summaries = memory.chapter_summaries if memory is not None else []
+            if summaries:
+                lines.append("- 章节摘要索引（咨询/续写时据此选择 read_chapter 精读）：")
+                for s in summaries:
+                    lines.append(f"  第{s.chapter_no}章 {s.title}：{s.overview}")
             lines.append("- 章节进度：")
             if novel.chapters:
                 for i, ch in enumerate(novel.chapters, 1):

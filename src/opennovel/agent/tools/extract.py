@@ -1,14 +1,14 @@
-"""提取类工具：风格档案、全书大纲、场景规划、剧情状态更新（v2 base tool set）。"""
+"""提取类工具：风格档案、全书大纲、场景规划、剧情状态与章节摘要（v2 base tool set）。"""
 
 from __future__ import annotations
 
 from opennovel.agent.planning import ChapterPlan, plan_chapters, plan_scenes
-from opennovel.agent.tools import ToolContext, ToolError, ToolResult, tool
+from opennovel.agent.tools import ToolContext, ToolError, tool
 from opennovel.memory import (
     extract_style_profile,
     plot_state_brief,
     style_anchor_block,
-    update_plot_state,
+    update_memory,
 )
 from opennovel.models import Chapter, Novel
 
@@ -28,12 +28,22 @@ def _ensure_book(ctx: ToolContext) -> Novel:
     return novel
 
 
+def _state_brief(ctx: ToolContext, novel: Novel) -> str:
+    memory = ctx.memory if ctx.memory is not None else ctx.fresh_memory()
+    state = memory.plot_state if memory is not None else novel.plot_state
+    return plot_state_brief(state)
+
+
 @tool("extract_style", "提取/刷新当前书的统一风格档案（开写前应调用一次）", category="提取")
 def extract_style(ctx: ToolContext, style_hint: str = "") -> str:
     novel = _ensure_book(ctx)
     hint = style_hint.strip() or ctx.style_hint
     profile = extract_style_profile(ctx.provider, novel.plot, hint)
     novel.style_profile = profile
+    memory = ctx.fresh_memory()
+    if memory is not None:
+        memory.style_profile = profile
+        ctx.save_memory()
     ctx.save()
     return (
         f"风格档案已提取并保存：文风 {profile.tone}；视角 {profile.pov}；"
@@ -64,7 +74,7 @@ def plan_scenes_tool(ctx: ToolContext, chapter_no: int) -> str:
         raise ToolError(f"第{idx}章已有正文，不需要再规划场景")
     plan = _plan_for(novel, idx)
     anchor = style_anchor_block(novel.style_profile)
-    brief = plot_state_brief(novel.plot_state)
+    brief = _state_brief(ctx, novel)
     scenes = plan_scenes(ctx.provider, novel.plot, plan, anchor, brief)
     if not scenes:
         raise ToolError("场景规划返回为空，请重试")
@@ -81,7 +91,11 @@ def plan_scenes_tool(ctx: ToolContext, chapter_no: int) -> str:
     return "\n".join(lines)
 
 
-@tool("update_plot_state", "提取指定章节新事实并入剧情状态（每章写完后应调用）", category="提取")
+@tool(
+    "update_plot_state",
+    "提取指定章节新事实（带关系标注）并入剧情状态并生成章节摘要（每章写完后应调用）",
+    category="提取",
+)
 def update_plot_state_tool(ctx: ToolContext, chapter_no: int) -> str:
     novel = _ensure_book(ctx)
     if not 1 <= chapter_no <= len(novel.chapters):
@@ -90,12 +104,24 @@ def update_plot_state_tool(ctx: ToolContext, chapter_no: int) -> str:
     text = "\n\n".join(s.content for s in chapter.scenes if s.content)
     if not text:
         raise ToolError(f"第{chapter_no}章还没有正文")
-    novel.plot_state = update_plot_state(ctx.provider, text, chapter_no, novel.plot_state)
+    memory = ctx.fresh_memory()
+    state = memory.plot_state if memory is not None else novel.plot_state
+    novel.plot_state, summary = update_memory(
+        ctx.provider, text, chapter_no, state, chapter_title=chapter.title
+    )
+    if memory is not None:
+        memory.plot_state = novel.plot_state
+        if summary is not None:
+            memory.chapter_summaries = [
+                s for s in memory.chapter_summaries if s.chapter_no != chapter_no
+            ] + [summary]
+        ctx.save_memory()
     ctx.save()
     state = novel.plot_state
     return (
         f"剧情状态已更新：{len(state.characters)} 个角色，{len(state.events)} 个事件，"
         f"{len([s for s in state.setups if s.resolved_in is None])} 个未回收伏笔"
+        + (f"；第{chapter_no}章摘要已生成" if summary is not None else "")
     )
 
 

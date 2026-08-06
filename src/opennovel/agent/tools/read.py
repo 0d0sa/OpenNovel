@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from opennovel.agent.tools import ToolContext, ToolError, ToolResult, tool
-from opennovel.memory import plot_state_brief, style_anchor_block
+from opennovel.memory import plot_state_brief, search_memory, style_anchor_block
 from opennovel.models import Novel
 
 READ_CHAPTER_CAP = 8000
@@ -123,3 +123,51 @@ def read_anchor(ctx: ToolContext) -> str:
     if profile is None or not profile.tone:
         return "（还没有风格档案）"
     return style_anchor_block(profile)
+
+
+@tool(
+    "search_memory",
+    "在全书正文与章节摘要中按关键词检索相关片段（返回命中片段与章节号，供定位后 read_chapter 精读）",
+    category="读取",
+)
+def search_memory_tool(ctx: ToolContext, query: str, limit: int = 5) -> str:
+    novel = _book(ctx)
+    memory = ctx.fresh_memory()
+    snippets = search_memory(novel, memory, query, limit)
+    if not snippets:
+        return f"未找到与「{query}」相关的内容。"
+    return "\n".join(snippets)
+
+
+@tool("read_summary", "读取章节摘要：chapter_no=0 列出全部索引，否则读取单章摘要", category="读取")
+def read_summary(ctx: ToolContext, chapter_no: int = 0) -> str:
+    if not ctx.title:
+        raise ToolError("当前没有打开任何书，先告诉我书名与剧情")
+    memory = ctx.fresh_memory()
+    if memory is None or not memory.chapter_summaries:
+        return "（还没有章节摘要；写完章节后会自动生成）"
+    if chapter_no == 0:
+        lines = ["章节摘要索引："]
+        for s in memory.chapter_summaries:
+            hook = f"（hook：{s.hook}）" if s.hook else ""
+            lines.append(f"- 第{s.chapter_no}章 {s.title}：{s.overview}{hook}")
+        return "\n".join(lines)
+    s = next((x for x in memory.chapter_summaries if x.chapter_no == chapter_no), None)
+    if s is None:
+        raise ToolError(f"还没有第{chapter_no}章的摘要")
+    lines = [f"第{s.chapter_no}章《{s.title}》摘要："]
+    if s.overview:
+        lines.append(f"- 概述：{s.overview}")
+    if s.events:
+        lines.extend([f"- 事件：{e}" for e in s.events])
+    if s.new_characters:
+        lines.append(f"- 新角色：{'、'.join(s.new_characters)}")
+    if s.new_setups:
+        lines.extend([f"- 新伏笔：{x}" for x in s.new_setups])
+    if s.resolved_setups:
+        lines.extend([f"- 已回收伏笔：{x}" for x in s.resolved_setups])
+    if s.key_facts:
+        lines.extend([f"- 关键设定：{x}" for x in s.key_facts])
+    if s.hook:
+        lines.append(f"- 续写提示：{s.hook}")
+    return "\n".join(lines)

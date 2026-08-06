@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from opennovel.agent.orchestrator import write_one_chapter
-from opennovel.agent.planning import ChapterPlan, plan_chapters, plan_scenes, write_scene
+from opennovel.agent.planning import ChapterPlan, plan_chapters, write_scene
 from opennovel.agent.tools import ToolContext, ToolError, ToolResult, tool
 from opennovel.memory import (
     extract_style_profile,
-    plot_state_brief,
-    style_anchor_block,
+    build_writing_brief,
 )
 from opennovel.models import Novel, Scene, SceneStatus
 
@@ -26,6 +25,10 @@ def _ensure_style(ctx: ToolContext, novel: Novel) -> None:
     if ctx.on_stage:
         ctx.on_stage("提取风格锚点")
     novel.style_profile = extract_style_profile(ctx.provider, novel.plot, ctx.style_hint)
+    memory = ctx.fresh_memory()
+    if memory is not None:
+        memory.style_profile = novel.style_profile
+        ctx.save_memory()
 
 
 def _ensure_outline(ctx: ToolContext, novel: Novel) -> None:
@@ -38,13 +41,14 @@ def _ensure_outline(ctx: ToolContext, novel: Novel) -> None:
 
 @tool(
     "write_chapter",
-    "写一章正文（复合：规划场景→逐场景写作→按设置检查→更新剧情状态→保存）；chapter_no=0 表示续写下一章",
+    "写一章正文（复合：规划场景→逐场景写作→按设置检查→更新剧情状态与摘要→保存）；chapter_no=0 表示续写下一章",
     category="编写",
 )
 def write_chapter(ctx: ToolContext, chapter_no: int = 0) -> ToolResult:
     novel = _book(ctx)
     _ensure_style(ctx, novel)
     _ensure_outline(ctx, novel)
+    memory = ctx.fresh_memory()
     idx = len(novel.chapters) + 1 if chapter_no <= 0 else chapter_no
     if idx <= 0 or idx > len(novel.outline):
         raise ToolError(f"第{idx}章超出大纲范围（共 {len(novel.outline)} 章，已写 {len(novel.chapters)} 章）；"
@@ -65,6 +69,7 @@ def write_chapter(ctx: ToolContext, chapter_no: int = 0) -> ToolResult:
             idx,
             plan,
             scenes=scenes,
+            memory=memory,
             on_progress=ctx.on_progress,
             on_stage=ctx.on_stage,
             on_token=ctx.on_token,
@@ -77,6 +82,9 @@ def write_chapter(ctx: ToolContext, chapter_no: int = 0) -> ToolResult:
         novel.chapters[idx - 1] = chapter
     else:
         novel.chapters.append(chapter)
+    if memory is not None:
+        novel.plot_state = memory.plot_state  # novel.json 兼容同步
+        ctx.save_memory()
     ctx.save()
 
     chars = sum(len(s.content) for s in chapter.scenes)
@@ -85,7 +93,8 @@ def write_chapter(ctx: ToolContext, chapter_no: int = 0) -> ToolResult:
     return ToolResult(
         summary=(
             f"第{idx}章《{chapter.title}》已完成：约 {chars} 字，风格检查 {style}，"
-            f"剧情检查 {plot}，剧情状态已更新，已保存 novel.json。要点：{plan.focus}"
+            f"剧情检查 {plot}，剧情状态与章节摘要已更新，已保存 novel.json 与 memory.json。"
+            f"要点：{plan.focus}"
         )
     )
 
@@ -115,16 +124,16 @@ def write_scene_tool(
     if scene is None:
         raise ToolError("该章没有待写的场景；请提供 summary 新建一个")
 
-    anchor = style_anchor_block(novel.style_profile)
-    brief = plot_state_brief(novel.plot_state)
+    brief = build_writing_brief(ctx.fresh_memory(), novel, chapter_no=chapter_no)
     prev_tail = _prev_tail(chapter, scene)
     target = max(ctx.settings.chapter_target_chars // max(len(chapter.scenes), 1), 200)
 
     if ctx.on_token_start:
         ctx.on_token_start()
     try:
+        # 组合简报（锚点+伏笔+简报+摘要）整体作为写作上下文传入
         text = write_scene(
-            ctx.provider, scene, anchor, brief, prev_tail, target,
+            ctx.provider, scene, brief, "", prev_tail, target,
             stream_callback=ctx.on_token,
         )
     finally:

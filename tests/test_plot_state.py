@@ -113,6 +113,150 @@ def test_check_consistency_parses():
     assert provider.calls[0].schema is PlotConsistency
 
 
+# --- v2: relation-annotated merge ---
+
+
+def relation_reply(**overrides) -> str:
+    payload = {
+        "new_characters": [],
+        "events": [],
+        "new_setups": [],
+        "resolved_setups": [],
+    }
+    payload.update(overrides)
+    return FakeProvider.json_reply(payload)
+
+
+def test_duplicate_event_is_dropped():
+    state = state_with()
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                events=[{"summary": "抵达雾城", "involved": ["林晚"], "relation": "duplicate_of", "target": "抵达雾城"}]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert len(result.events) == 1  # 未重复追加
+    assert result.events[0].chapter == 1
+
+
+def test_extends_event_merges_involved():
+    state = state_with()
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                events=[{"summary": "抵达雾城", "involved": ["陈默"], "relation": "extends", "target": "抵达雾城"}]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert len(result.events) == 1
+    assert result.events[0].involved == ["林晚", "陈默"]
+
+
+def test_update_facts_matches_by_paraphrase():
+    state = state_with(CharacterRecord(name="林晚", role="主角", facts=["抵达雾城"]))
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                new_characters=[
+                    {"name": "主角", "facts": ["来自山南镇"], "relation": "update_facts", "target": "林晚"}
+                ]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert result.characters["林晚"].facts == ["抵达雾城", "来自山南镇"]
+
+
+def test_update_role_overrides_role():
+    state = state_with(CharacterRecord(name="林晚", role="主角", facts=["失忆"]))
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                new_characters=[
+                    {"name": "林晚", "role": "侦探", "relation": "update_role", "target": "林晚"}
+                ]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert result.characters["林晚"].role == "侦探"
+    assert result.characters["林晚"].facts == ["失忆"]  # facts 不受 update_role 影响
+
+
+def test_setup_resolved_by_relation_semantic_match():
+    state = state_with()  # setups: 站台角落的信（第1章）
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                new_setups=[{"description": "林晚拿起了那封信", "relation": "resolved", "target": "站台角落的信"}]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert result.setups[0].resolved_in == 2
+    assert len(result.setups) == 1  # 未追加新伏笔
+
+
+def test_unmatched_resolution_degrades_to_new_setup():
+    state = state_with()
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                new_setups=[{"description": "一封全新的信", "relation": "resolved", "target": "不存在的伏笔"}]
+            )
+        ]
+    )
+    result = update_plot_state(provider, CH2, 2, state)
+    assert result.setups[0].resolved_in is None  # 旧伏笔未被误标
+    assert result.setups[-1].description == "一封全新的信"
+    assert result.setups[-1].resolved_in is None  # 保守降级为新伏笔
+
+
+def test_update_memory_extracts_summary():
+    provider = FakeProvider(
+        replies=[
+            relation_reply(
+                new_characters=[{"name": "林晚", "role": "主角"}],
+                chapter_summary={
+                    "overview": "林晚抵达雾城",
+                    "events": ["车站相遇"],
+                    "new_characters": ["林晚"],
+                    "hook": "下一章要拆开那封信",
+                },
+            )
+        ]
+    )
+    from opennovel.memory import update_memory
+
+    state, summary = update_memory(provider, CH1, 1, PlotState(), chapter_title="夜雨")
+    assert state.characters["林晚"].role == "主角"
+    assert summary is not None
+    assert summary.chapter_no == 1
+    assert summary.title == "夜雨"
+    assert summary.overview == "林晚抵达雾城"
+    assert summary.hook == "下一章要拆开那封信"
+
+
+def test_brief_without_setups():
+    state = state_with()
+    brief = plot_state_brief(state, include_setups=False)
+    assert "站台角落的信" not in brief
+    assert "第1章 抵达雾城" in brief
+
+
+def test_semantic_match_norm():
+    from opennovel.memory import semantic_match
+
+    assert semantic_match("站台角落的信", ["站台角落的信"]) == "站台角落的信"
+    assert semantic_match("角落的信", ["站台角落的信"]) == "站台角落的信"  # 子串
+    assert semantic_match("站台角落发现的那封信", ["站台角落的信"]) == "站台角落的信"  # 高重合
+    assert semantic_match("完全无关的内容", ["站台角落的信"]) is None
+    assert semantic_match("", ["站台角落的信"]) is None
+
+
 def test_two_chapter_loop_with_fake_provider():
     provider = FakeProvider()
     provider.enqueue(update_reply())

@@ -1,5 +1,11 @@
 """Core data models: Novel, Chapter, Scene, Character."""
 
+from opennovel.models.memory import NovelMemory
+from opennovel.models.memory_store import (
+    default_memory_path,
+    load_memory,
+    save_memory,
+)
 from opennovel.models.novel import (
     Chapter,
     ChapterPlan,
@@ -20,10 +26,14 @@ __all__ = [
     "ChapterPlan",
     "Character",
     "Novel",
+    "NovelMemory",
     "Scene",
     "SceneStatus",
+    "default_memory_path",
     "default_novel_path",
+    "load_memory",
     "load_novel",
+    "save_memory",
     "save_novel",
     "save_novel_json",
 ]
